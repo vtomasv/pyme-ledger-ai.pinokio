@@ -27,12 +27,18 @@ from analytics import AnalyticsEngine
 from analytics.recommender import get_recommender_engine
 from analytics.exporter import get_export_engine
 
-# Configuración
+# Configuración — rutas absolutas desde __file__ (requerido por Pinokio)
+# server/app.py → parent = server/ → parent.parent = raíz del plugin
+BASE_DIR = Path(__file__).parent.parent.resolve()
 PORT = int(os.environ.get("PORT", 8000))
-DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
-PLUGIN_DIR = Path(os.environ.get("PLUGIN_DIR", "."))
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR / "data")))
+PLUGIN_DIR = Path(os.environ.get("PLUGIN_DIR", str(BASE_DIR)))
 UPLOADS_DIR = DATA_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+print(f"INFO: BASE_DIR  = {BASE_DIR}")
+print(f"INFO: DATA_DIR  = {DATA_DIR}")
+print(f"INFO: PORT      = {PORT}")
 
 # Inicializar BD
 init_db()
@@ -579,7 +585,12 @@ async def download_export(filename: str):
 # Servir archivos estáticos de la UI
 # ============================================================
 
-app.mount("/ui", StaticFiles(directory=str(PLUGIN_DIR / "app"), html=True), name="ui")
+# Montar UI con ruta absoluta
+_APP_DIR = BASE_DIR / "app"
+if _APP_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(_APP_DIR), html=True), name="ui")
+else:
+    print(f"WARNING: Directorio UI no encontrado en {_APP_DIR}")
 
 
 if __name__ == "__main__":
