@@ -1,14 +1,14 @@
 module.exports = {
   title: "Pyme Ledger AI",
-  description: "Gestión de documentos contables con IA local - Extracción, clasificación y análisis 100% offline",
+  description: "Gestión de documentos contables con IA local para PyMEs — 100% offline",
   icon: "icon.png",
   version: "1.0.0",
-  
+
   menu: async (kernel, info) => {
-    // Verificar si está instalado
+    // Verificar instalación: comprobar que el venv existe
     const installed = await kernel.exists(__dirname, "venv")
     const running = await kernel.script.running(__dirname, "start.json")
-    
+
     if (!installed) {
       return [{
         default: true,
@@ -18,7 +18,7 @@ module.exports = {
         description: "Instalación automática con 1 click"
       }]
     }
-    
+
     if (running) {
       return [
         {
@@ -34,7 +34,7 @@ module.exports = {
         }
       ]
     }
-    
+
     return [
       {
         default: true,

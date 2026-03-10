@@ -67,9 +67,8 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "pip install --upgrade pip && pip install -r requirements.txt",
-        "path": "{{cwd}}",
-        "venv": "venv"
+        "message": "venv/bin/pip install --upgrade pip && venv/bin/pip install -r requirements.txt",
+        "path": "{{cwd}}"
       }
     },
 
@@ -99,7 +98,7 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "[ -f data/agents/agents.json ] || cp defaults/agents.json data/agents/agents.json && cp -rn defaults/prompts/* data/prompts/ 2>/dev/null || true",
+        "message": "[ -f data/agents/agents.json ] || cp defaults/agents.json data/agents/agents.json ; cp -rn defaults/prompts/* data/prompts/ 2>/dev/null ; true",
         "path": "{{cwd}}"
       }
     },

@@ -3,9 +3,8 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "ollama serve > /dev/null 2>&1 & sleep 2 && python server/app.py",
+        "message": "ollama serve > /dev/null 2>&1 & sleep 2 && venv/bin/python server/app.py",
         "path": "{{cwd}}",
-        "venv": "venv",
         "env": {
           "PORT": "{{port}}",
           "DATA_DIR": "{{cwd}}/data",
