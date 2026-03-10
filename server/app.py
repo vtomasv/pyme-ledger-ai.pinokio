@@ -59,10 +59,11 @@ app.add_middleware(
 class EmpresaCreate(BaseModel):
     razon_social: str
     nombre_fantasia: Optional[str] = None
-    rut: str
+    rut: str = "00.000.000-0"
     pais: str = "Chile"
     moneda_base: str = "CLP"
     regimen_tributario: Optional[str] = None
+    giro: Optional[str] = None
 
 
 class CentroCostoCreate(BaseModel):
@@ -72,9 +73,11 @@ class CentroCostoCreate(BaseModel):
 
 
 class CategoriaContableCreate(BaseModel):
-    codigo: str
+    codigo: Optional[str] = None
     nombre: str
-    tipo_gasto: str
+    tipo_gasto: Optional[str] = None
+    tipo: Optional[str] = "gasto"
+    descripcion: Optional[str] = None
     deducibilidad: str = "Total"
     regla_iva: str = "Recuperable"
 
@@ -105,11 +108,11 @@ async def create_empresa(empresa: EmpresaCreate):
         new_empresa = Empresa(
             id=empresa_id,
             razon_social=empresa.razon_social,
-            nombre_fantasia=empresa.nombre_fantasia,
+            nombre_fantasia=empresa.nombre_fantasia or empresa.giro,
             rut=empresa.rut,
             pais=empresa.pais,
             moneda_base=empresa.moneda_base,
-            regimen_tributario=empresa.regimen_tributario
+            regimen_tributario=empresa.regimen_tributario or empresa.giro
         )
         db.add(new_empresa)
         db.commit()
@@ -118,6 +121,7 @@ async def create_empresa(empresa: EmpresaCreate):
             "id": empresa_id,
             "razon_social": empresa.razon_social,
             "rut": empresa.rut,
+            "giro": empresa.giro,
             "mensaje": "Empresa creada exitosamente"
         }
     except Exception as e:
@@ -140,6 +144,7 @@ async def list_empresas():
                     "razon_social": e.razon_social,
                     "nombre_fantasia": e.nombre_fantasia,
                     "rut": e.rut,
+                    "giro": e.regimen_tributario,
                     "pais": e.pais,
                     "moneda_base": e.moneda_base
                 }
@@ -248,16 +253,16 @@ async def create_category(empresa_id: str, cat: CategoriaContableCreate):
         new_cat = CategoriaContable(
             id=cat_id,
             empresa_id=empresa_id,
-            codigo=cat.codigo,
+            codigo=cat.codigo or cat_id[:8],
             nombre=cat.nombre,
-            tipo_gasto=cat.tipo_gasto,
+            tipo_gasto=cat.tipo_gasto or cat.tipo or "gasto",
             deducibilidad=cat.deducibilidad,
             regla_iva=cat.regla_iva
         )
         db.add(new_cat)
         db.commit()
         
-        return {"id": cat_id, "codigo": cat.codigo, "nombre": cat.nombre}
+        return {"id": cat_id, "codigo": cat.codigo or cat_id[:8], "nombre": cat.nombre}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -344,12 +349,24 @@ async def list_documents(empresa_id: str, limit: int = 50, offset: int = 0):
             "documentos": [
                 {
                     "id": d.id,
-                    "fecha": d.fecha_emision.isoformat() if d.fecha_emision else None,
+                    "nombre_archivo": Path(d.ruta_archivo_original).name if d.ruta_archivo_original else (d.id + ".pdf"),
+                    "fecha_emision": d.fecha_emision.isoformat() if d.fecha_emision else None,
+                    "fecha_subida": d.fecha_creacion.isoformat() if d.fecha_creacion else None,
                     "proveedor": d.proveedor,
-                    "monto_total": d.monto_total,
-                    "categoria": d.categoria.nombre if d.categoria else None,
-                    "estado": d.estado_revision.value if d.estado_revision else None,
-                    "confianza": d.confianza_clasificacion
+                    "rut_proveedor": d.rut_proveedor,
+                    "folio": d.folio,
+                    "monto_neto": float(d.monto_neto) if d.monto_neto else None,
+                    "iva": float(d.iva) if d.iva else None,
+                    "monto_total": float(d.monto_total) if d.monto_total else None,
+                    "tipo_documento": d.tipo_documento.value if d.tipo_documento else None,
+                    "categoria_id": d.categoria_id,
+                    "categoria_nombre": d.categoria.nombre if d.categoria else None,
+                    "estado_revision": d.estado_revision.value if d.estado_revision else "pendiente",
+                    "confianza_clasificacion": d.confianza_clasificacion,
+                    "categoria_sugerida": d.categoria.nombre if d.categoria else None,
+                    "razon_clasificacion": d.categoria_sugerida if d.categoria_sugerida else None,
+                    "texto_extraido": d.texto_extraido[:300] if d.texto_extraido else None,
+                    "excepciones": json.loads(d.excepciones) if d.excepciones else []
                 }
                 for d in docs
             ]
@@ -579,6 +596,65 @@ async def download_export(filename: str):
         filename=filename,
         media_type="application/octet-stream"
     )
+
+
+# ============================================================
+# Endpoints: Preview y descarga de documentos
+# ============================================================
+
+@app.get("/api/documentos/{doc_id}/preview")
+async def preview_document(doc_id: str):
+    """Devuelve la imagen de preview de un documento."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Documento).filter(Documento.id == doc_id).first()
+        if not doc or not doc.ruta_archivo_original:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        file_path = Path(doc.ruta_archivo_original)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+        ext = file_path.suffix.lower()
+        if ext in [".jpg", ".jpeg"]:
+            media_type = "image/jpeg"
+        elif ext == ".png":
+            media_type = "image/png"
+        elif ext == ".pdf":
+            # Para PDFs intentamos generar thumbnail con pdf2image si está disponible
+            try:
+                from pdf2image import convert_from_path
+                import io
+                pages = convert_from_path(str(file_path), first_page=1, last_page=1, dpi=120)
+                if pages:
+                    img_io = io.BytesIO()
+                    pages[0].save(img_io, format="JPEG", quality=75)
+                    img_io.seek(0)
+                    from fastapi.responses import StreamingResponse
+                    return StreamingResponse(img_io, media_type="image/jpeg")
+            except Exception:
+                pass
+            raise HTTPException(status_code=415, detail="Preview no disponible para PDF")
+        else:
+            raise HTTPException(status_code=415, detail="Tipo de archivo no soportado")
+        return FileResponse(path=str(file_path), media_type=media_type)
+    finally:
+        db.close()
+
+
+@app.get("/api/documentos/{doc_id}/download")
+async def download_document(doc_id: str):
+    """Descarga el archivo original de un documento."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Documento).filter(Documento.id == doc_id).first()
+        if not doc or not doc.ruta_archivo_original:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        file_path = Path(doc.ruta_archivo_original)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+        filename = file_path.name
+        return FileResponse(path=str(file_path), filename=filename, media_type="application/octet-stream")
+    finally:
+        db.close()
 
 
 # ============================================================
