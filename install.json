@@ -3,42 +3,42 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:20px'><h2 style='margin-bottom:8px'>Instalando Pyme Ledger AI</h2><p style='color:#94a3b8'>Este proceso puede tomar 5-15 minutos la primera vez.</p></div>"
+        "html": "<div style='padding:20px;background:#0f172a;border-radius:8px'><h2 style='color:#f1f5f9;margin-bottom:8px'>Instalando Pyme Ledger AI</h2><p style='color:#94a3b8'>Sistema detectado: {{platform}} &nbsp;|&nbsp; RAM: {{ram}}GB</p><p style='color:#94a3b8'>Este proceso puede tomar 5-15 minutos la primera vez.</p></div>"
       }
     },
 
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3>Configurando motor de IA (Ollama)...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>1/4 — Configurando Ollama (motor de IA)...</h3></div>"
       }
     },
 
     {
       "method": "shell.run",
       "params": {
-        "message": "ollama --version 2>/dev/null && echo 'OLLAMA_OK' || curl -fsSL https://ollama.com/install.sh | sh"
+        "message": "{{platform === 'win32' ? 'winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements 2>NUL || echo OLLAMA_ALREADY_INSTALLED' : 'ollama --version 2>/dev/null || curl -fsSL https://ollama.com/install.sh | sh'}}"
       }
     },
 
     {
       "method": "shell.run",
       "params": {
-        "message": "ollama serve > /dev/null 2>&1 &"
+        "message": "{{platform === 'win32' ? 'start /B ollama serve > NUL 2>&1' : 'ollama serve > /dev/null 2>&1 &'}}"
       }
     },
 
     {
       "method": "shell.run",
       "params": {
-        "message": "sleep 4 && curl -s http://localhost:11434/api/tags > /dev/null && echo 'Ollama listo'"
+        "message": "{{platform === 'win32' ? 'ping -n 5 127.0.0.1 > NUL' : 'sleep 4'}}"
       }
     },
 
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3>Descargando modelo de IA...</h3><p style='color:#94a3b8'>RAM detectada: {{ram}}GB. Esto puede tomar varios minutos.</p></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>2/4 — Descargando modelo de IA...</h3><p style='color:#94a3b8'>RAM: {{ram}}GB — Seleccionando modelo óptimo. Esto puede tomar varios minutos.</p></div>"
       }
     },
 
@@ -52,22 +52,14 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3>Configurando entorno Python...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>3/4 — Configurando entorno Python...</h3><p style='color:#94a3b8'>Creando entorno virtual e instalando dependencias...</p></div>"
       }
     },
 
     {
       "method": "shell.run",
       "params": {
-        "message": "python -m venv venv",
-        "path": "{{cwd}}"
-      }
-    },
-
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "venv/bin/pip install --upgrade pip && venv/bin/pip install -r requirements.txt",
+        "message": "python setup.py",
         "path": "{{cwd}}"
       }
     },
@@ -75,15 +67,7 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3>Inicializando datos...</h3></div>"
-      }
-    },
-
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "mkdir -p data/agents data/prompts/system data/prompts/templates data/sessions data/exports data/uploads",
-        "path": "{{cwd}}"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>4/4 — Guardando configuración...</h3></div>"
       }
     },
 
@@ -91,29 +75,21 @@
       "method": "fs.write",
       "params": {
         "path": "data/config.json",
-        "text": "{{JSON.stringify({version:'1.0.0',installedAt:new Date().toISOString(),platform:platform,ram:ram,defaultModel:ram<6?'llama3.2:1b':ram<12?'llama3.2:3b':'llama3.1:8b'},null,2)}}"
-      }
-    },
-
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "[ -f data/agents/agents.json ] || cp defaults/agents.json data/agents/agents.json ; cp -rn defaults/prompts/* data/prompts/ 2>/dev/null ; true",
-        "path": "{{cwd}}"
+        "text": "{{JSON.stringify({version:'1.0.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,defaultModel:ram<6?'llama3.2:1b':ram<12?'llama3.2:3b':'llama3.1:8b'},null,2)}}"
       }
     },
 
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:20px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e;margin-bottom:8px'>Instalacion completada</h3><p>El plugin esta listo para usar.</p><p style='margin-top:8px;color:#94a3b8'>Haz click en <strong>Iniciar</strong> para comenzar.</p></div>"
+        "html": "<div style='padding:20px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e;margin-bottom:8px'>✓ Instalacion completada</h3><p style='color:#d1fae5'>El plugin esta listo para usar.</p><p style='margin-top:8px;color:#94a3b8'>Haz click en <strong>Iniciar</strong> para comenzar.</p></div>"
       }
     },
 
     {
       "method": "notify",
       "params": {
-        "html": "Pyme Ledger AI instalado! Haz click en Iniciar para comenzar."
+        "html": "Pyme Ledger AI instalado correctamente. Haz click en Iniciar para comenzar."
       }
     }
   ]

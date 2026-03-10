@@ -10,8 +10,10 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from models import Base
 
-# Configuración
-DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
+# Configuración — ruta absoluta desde __file__ como fallback
+# database.py está en server/, el plugin está en server/../
+_BASE_DIR = Path(__file__).parent.parent.resolve()
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(_BASE_DIR / "data")))
 DB_PATH = DATA_DIR / "pyme_ledger.db"
 
 # Crear directorio si no existe

@@ -7,10 +7,31 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 import hashlib
-from PIL import Image
-import PyPDF2
-import pytesseract
-import easyocr
+
+# Imports opcionales — el agente funciona en modo degradado si no están disponibles
+try:
+    from PIL import Image
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
+
+try:
+    import PyPDF2
+    _PYPDF2_AVAILABLE = True
+except ImportError:
+    _PYPDF2_AVAILABLE = False
+
+try:
+    import pytesseract
+    _TESSERACT_AVAILABLE = True
+except ImportError:
+    _TESSERACT_AVAILABLE = False
+
+try:
+    import easyocr
+    _EASYOCR_AVAILABLE = True
+except ImportError:
+    _EASYOCR_AVAILABLE = False
 
 # Configuración
 TESSERACT_PATH = os.environ.get("TESSERACT_PATH", "tesseract")
@@ -33,11 +54,15 @@ class OCRAgent:
     
     def _init_easyocr(self):
         """Inicializa EasyOCR si está disponible."""
+        if not _EASYOCR_AVAILABLE:
+            print("INFO: EasyOCR no instalado. Usando Tesseract/PyPDF2 como fallback.")
+            self.reader = None
+            return
         try:
             gpu = self.hardware_profile.startswith("gpu")
             self.reader = easyocr.Reader(["es", "en"], gpu=gpu)
         except Exception as e:
-            print(f"⚠️ EasyOCR no disponible: {e}. Usando Tesseract como fallback.")
+            print(f"INFO: EasyOCR no disponible: {e}. Usando Tesseract como fallback.")
             self.reader = None
     
     def extract_from_file(self, file_path: str) -> Dict[str, any]:
@@ -69,6 +94,8 @@ class OCRAgent:
     
     def _extract_from_pdf(self, file_path: str) -> Dict[str, any]:
         """Extrae texto de un PDF."""
+        if not _PYPDF2_AVAILABLE:
+            return {"error": "PyPDF2 no disponible", "text": "", "method": "unavailable"}
         path = Path(file_path)
         text_parts = []
         pages_processed = 0
@@ -114,6 +141,8 @@ class OCRAgent:
     
     def _extract_from_image(self, file_path: str) -> Dict[str, any]:
         """Extrae texto de una imagen."""
+        if not _PIL_AVAILABLE:
+            return {"error": "Pillow no disponible", "text": "", "method": "unavailable"}
         try:
             img = Image.open(file_path)
             text = self._ocr_image(img)
@@ -137,13 +166,14 @@ class OCRAgent:
             except Exception as e:
                 print(f"Error con EasyOCR: {e}")
         
-        # Fallback a Tesseract
-        try:
-            text = pytesseract.image_to_string(image, lang=OCR_LANG)
-            return text
-        except Exception as e:
-            print(f"Error con Tesseract: {e}")
-            return ""
+        # Fallback a Tesseract (requiere binario del sistema)
+        if _TESSERACT_AVAILABLE:
+            try:
+                text = pytesseract.image_to_string(image, lang=OCR_LANG)
+                return text
+            except Exception as e:
+                print(f"INFO: Tesseract no disponible en el sistema: {e}")
+        return ""
     
     def _pdf_page_to_images(self, pdf_path: str, page_num: int) -> list:
         """Convierte una página PDF a imagen(s)."""

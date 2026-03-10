@@ -3,7 +3,19 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "ollama serve > /dev/null 2>&1 & sleep 2 && venv/bin/python server/app.py",
+        "message": "{{platform === 'win32' ? 'start /B ollama serve > NUL 2>&1' : 'ollama serve > /dev/null 2>&1 &'}}"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "{{platform === 'win32' ? 'ping -n 3 127.0.0.1 > NUL' : 'sleep 2'}}"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "python launcher.py",
         "path": "{{cwd}}",
         "env": {
           "PORT": "{{port}}",

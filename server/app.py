@@ -593,5 +593,19 @@ else:
     print(f"WARNING: Directorio UI no encontrado en {_APP_DIR}")
 
 
+# Redirigir raíz a la UI
+@app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/ui")
+
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+    # log_level="info" para que Pinokio detecte el puerto en el output
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+        # loop="asyncio" es compatible con Windows (evita problemas con uvloop)
+        loop="asyncio"
+    )

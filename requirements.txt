@@ -1,41 +1,47 @@
 # ============================================================
 # Pyme Ledger AI — Dependencias Python
-# Todos los paquetes son nombres reales de PyPI
+# Paquetes reales de PyPI con versiones fijas y verificadas.
+# Instalado automáticamente por setup.py usando venv/bin/pip.
 # ============================================================
 
-# Servidor web
+# ── Servidor web ─────────────────────────────────────────────
 fastapi==0.115.0
 uvicorn==0.30.6
 python-multipart==0.0.9
 
-# Validación de datos
+# ── Validación de datos ──────────────────────────────────────
 pydantic==2.9.2
 pydantic-settings==2.5.2
 
-# Base de datos
+# ── Base de datos ────────────────────────────────────────────
 sqlalchemy==2.0.35
 
-# HTTP
+# ── HTTP ─────────────────────────────────────────────────────
 requests==2.32.3
 httpx==0.27.2
 
-# Procesamiento de documentos
+# ── Procesamiento de documentos ──────────────────────────────
+# PyPDF2: extracción de texto de PDFs digitales (sin dependencias del sistema)
 PyPDF2==3.0.1
-pdf2image==1.17.0
-pytesseract==0.3.13
+# Pillow: procesamiento de imágenes
 Pillow==10.4.0
+# pytesseract: wrapper Python para Tesseract (el binario es opcional)
+pytesseract==0.3.13
+# pdf2image: convierte páginas PDF a imágenes (requiere Poppler, opcional)
+pdf2image==1.17.0
 
-# OCR avanzado (opcional — puede tardar en instalar)
+# ── OCR avanzado ─────────────────────────────────────────────
+# easyocr: OCR neuronal sin dependencias del sistema (descarga modelos ~1GB en primer uso)
 easyocr==1.7.2
 
-# Datos y análisis
+# ── Datos y análisis ─────────────────────────────────────────
 pandas==2.2.3
 numpy==1.26.4
 openpyxl==3.1.5
 
-# Reportes
+# ── Reportes ─────────────────────────────────────────────────
 reportlab==4.2.5
 
-# Utilidades
+# ── Utilidades ───────────────────────────────────────────────
 python-dateutil==2.9.0
 python-dotenv==1.0.1
