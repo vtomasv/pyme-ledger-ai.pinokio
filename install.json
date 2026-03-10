@@ -3,14 +3,14 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:20px;background:#0f172a;border-radius:8px'><h2 style='color:#f1f5f9;margin-bottom:8px'>Instalando Pyme Ledger AI</h2><p style='color:#94a3b8'>Sistema detectado: {{platform}} &nbsp;|&nbsp; RAM: {{ram}}GB</p><p style='color:#94a3b8'>Este proceso puede tomar 5-15 minutos la primera vez.</p></div>"
+        "html": "<div style='padding:20px;background:#0f172a;border-radius:8px'><h2 style='color:#f1f5f9;margin-bottom:8px'>📦 Instalando Pyme Ledger AI</h2><p style='color:#94a3b8'>Sistema: {{platform}} &nbsp;|&nbsp; RAM: {{ram}}GB</p><p style='color:#94a3b8'>Este proceso puede tomar 10-20 minutos la primera vez (incluye descarga de modelos de IA).</p></div>"
       }
     },
 
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>1/4 — Configurando Ollama (motor de IA)...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>1/5 — Configurando Ollama (motor de IA local)...</h3></div>"
       }
     },
 
@@ -22,23 +22,9 @@
     },
 
     {
-      "method": "shell.run",
-      "params": {
-        "message": "{{platform === 'win32' ? 'start /B ollama serve > NUL 2>&1' : 'ollama serve > /dev/null 2>&1 &'}}"
-      }
-    },
-
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "{{platform === 'win32' ? 'ping -n 5 127.0.0.1 > NUL' : 'sleep 4'}}"
-      }
-    },
-
-    {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>2/4 — Descargando modelo de IA...</h3><p style='color:#94a3b8'>RAM: {{ram}}GB — Seleccionando modelo óptimo. Esto puede tomar varios minutos.</p></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>2/5 — Descargando modelo de lenguaje...</h3><p style='color:#94a3b8'>RAM: {{ram}}GB — Seleccionando modelo óptimo.</p></div>"
       }
     },
 
@@ -52,7 +38,21 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>3/4 — Configurando entorno Python...</h3><p style='color:#94a3b8'>Creando entorno virtual e instalando dependencias...</p></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>3/5 — Descargando modelo de visión para OCR avanzado...</h3><p style='color:#94a3b8'>moondream (~1.8GB) — permite leer documentos manuscritos y escaneados.</p></div>"
+      }
+    },
+
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "ollama pull moondream"
+      }
+    },
+
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>4/5 — Configurando entorno Python e instalando OCR...</h3><p style='color:#94a3b8'>Instalando Tesseract, Poppler y dependencias Python automáticamente.</p></div>"
       }
     },
 
@@ -67,7 +67,7 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>4/4 — Guardando configuración...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>5/5 — Guardando configuración...</h3></div>"
       }
     },
 
@@ -75,21 +75,21 @@
       "method": "fs.write",
       "params": {
         "path": "data/config.json",
-        "text": "{{JSON.stringify({version:'1.0.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,defaultModel:ram<6?'llama3.2:1b':ram<12?'llama3.2:3b':'llama3.1:8b'},null,2)}}"
+        "text": "{{JSON.stringify({version:'1.1.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,defaultModel:ram<6?'llama3.2:1b':ram<12?'llama3.2:3b':'llama3.1:8b',visionModel:'moondream'},null,2)}}"
       }
     },
 
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:20px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e;margin-bottom:8px'>✓ Instalacion completada</h3><p style='color:#d1fae5'>El plugin esta listo para usar.</p><p style='margin-top:8px;color:#94a3b8'>Haz click en <strong>Iniciar</strong> para comenzar.</p></div>"
+        "html": "<div style='padding:20px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e;margin-bottom:8px'>✅ Instalación completada</h3><p style='color:#d1fae5'>El plugin está listo para usar con OCR multi-estrategia:</p><ul style='color:#d1fae5;margin-top:8px'><li>✓ Tesseract OCR (texto impreso)</li><li>✓ EasyOCR (texto complejo)</li><li>✓ moondream VLLM (documentos manuscritos)</li></ul><p style='margin-top:12px;color:#94a3b8'>Haz click en <strong>Iniciar</strong> para comenzar.</p></div>"
       }
     },
 
     {
       "method": "notify",
       "params": {
-        "html": "Pyme Ledger AI instalado correctamente. Haz click en Iniciar para comenzar."
+        "html": "Pyme Ledger AI instalado con OCR avanzado. Haz click en Iniciar para comenzar."
       }
     }
   ]
