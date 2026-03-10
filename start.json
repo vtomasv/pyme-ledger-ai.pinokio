@@ -1,0 +1,38 @@
+{
+  "daemon": true,
+  "run": [
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3>🚀 Iniciando Pyme Ledger AI...</h3></div>"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "curl -s http://localhost:11434/api/tags > /dev/null || (ollama serve > /dev/null 2>&1 &)",
+        "timeout": 5
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "sleep 2"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "python server/app.py",
+        "path": "{{cwd}}",
+        "venv": "venv",
+        "env": {
+          "PORT": "{{port}}",
+          "DATA_DIR": "{{cwd}}/data",
+          "PLUGIN_DIR": "{{cwd}}",
+          "OLLAMA_URL": "http://localhost:11434"
+        }
+      }
+    }
+  ]
+}

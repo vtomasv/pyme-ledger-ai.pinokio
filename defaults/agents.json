@@ -1,0 +1,22 @@
+[
+  {
+    "id": "general",
+    "name": "Asistente Pyme Ledger Ai",
+    "model": "llama3.2:3b",
+    "role": "general",
+    "systemPrompt": "Eres un asistente especializado en Pyme Ledger Ai. Ayudas a los usuarios con sus consultas de forma clara y concisa. Responde siempre en español.",
+    "temperature": 0.7,
+    "maxTokens": 1024,
+    "tools": []
+  },
+  {
+    "id": "analyst",
+    "name": "Analista",
+    "model": "llama3.2:3b",
+    "role": "specialist",
+    "systemPrompt": "Eres un analista experto. Analiza la información proporcionada y genera insights detallados y accionables. Estructura tus respuestas con claridad. Responde siempre en español.",
+    "temperature": 0.3,
+    "maxTokens": 2048,
+    "tools": []
+  }
+]

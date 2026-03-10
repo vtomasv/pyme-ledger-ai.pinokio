@@ -1,0 +1,46 @@
+# Dependencias del servidor
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+
+# HTTP y comunicación
+requests>=2.31.0
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# Utilidades
+python-dotenv>=1.0.0
+pathlib2>=2.3.7
+python-multipart>=0.0.6
+
+# Procesamiento de documentos
+PyPDF2>=3.0.0
+pdf2image>=1.16.0
+pytesseract>=0.3.10
+easyocr>=1.7.0
+pillow>=10.0.0
+python-pptx>=0.6.21
+
+# Procesamiento de datos
+pandas>=2.0.0
+polars>=0.19.0
+openpyxl>=3.1.0
+numpy>=1.24.0
+
+# Base de datos
+sqlalchemy>=2.0.0
+sqlite3-python>=1.0.0
+
+# Análisis y reportes
+reportlab>=4.0.0
+weasyprint>=59.0
+
+# Validación y parsing
+pydantic-settings>=2.0.0
+python-dateutil>=2.8.2
+
+# Hashing y seguridad
+hashlib-python>=1.0.0
+
+# Logging y debugging
+python-json-logger>=2.0.0

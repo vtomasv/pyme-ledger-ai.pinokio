@@ -1,0 +1,114 @@
+{
+  "title": "Instalando Pyme Ledger AI",
+  "description": "Instalación automática de dependencias",
+  "run": [
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3>🔍 Verificando sistema...</h3></div>"
+      }
+    },
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3>🤖 Configurando Ollama...</h3></div>"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "ollama --version || (curl -fsSL https://ollama.com/install.sh | sh)",
+        "on": [{
+          "event": "error",
+          "done": false
+        }]
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "ollama serve > /dev/null 2>&1 &",
+        "timeout": 5
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "sleep 3"
+      }
+    },
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3>⬇️ Descargando modelo de IA...</h3><p style='color:#94a3b8'>Esto puede tomar varios minutos la primera vez.</p></div>"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "{{ram < 8 ? 'ollama pull llama3.2:1b' : ram < 16 ? 'ollama pull llama3.2:3b' : 'ollama pull llama3.1:8b'}}"
+      }
+    },
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3>🐍 Configurando entorno Python...</h3></div>"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "python -m venv venv",
+        "path": "{{cwd}}"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "pip install --upgrade pip setuptools wheel",
+        "path": "{{cwd}}",
+        "venv": "venv"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "pip install -r requirements.txt",
+        "path": "{{cwd}}",
+        "venv": "venv"
+      }
+    },
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3>💾 Inicializando base de datos...</h3></div>"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "mkdir -p data/agents data/prompts/system data/prompts/templates data/sessions data/exports data/uploads",
+        "path": "{{cwd}}"
+      }
+    },
+    {
+      "method": "fs.write",
+      "params": {
+        "path": "data/config.json",
+        "text": "{{JSON.stringify({version: '1.0.0', installedAt: new Date().toISOString(), defaultModel: ram < 8 ? 'llama3.2:1b' : ram < 16 ? 'llama3.2:3b' : 'llama3.1:8b', hardware: {ram: ram, vram: vram, gpu: gpu}}, null, 2)}}"
+      }
+    },
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e'>✅ Instalación completada</h3><p>Haz click en 'Iniciar' para comenzar a usar el plugin.</p></div>"
+      }
+    },
+    {
+      "method": "notify",
+      "params": {
+        "html": "Pyme Ledger AI instalado correctamente. Haz click en 'Iniciar' para comenzar."
+      }
+    }
+  ]
+}
