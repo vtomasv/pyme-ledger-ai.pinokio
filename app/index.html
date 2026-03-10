@@ -1,1486 +1,1134 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pyme Ledger AI</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <style>
-    :root {
-      --primary: #6366f1;
-      --primary-dark: #4f46e5;
-      --primary-light: #818cf8;
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --bg-primary: #0f172a;
-      --bg-secondary: #1e293b;
-      --bg-hover: #273449;
-      --text-primary: #f1f5f9;
-      --text-secondary: #94a3b8;
-      --border: #334155;
-      --radius: 10px;
-      --radius-lg: 16px;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pyme Ledger AI</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0f1117;--bg2:#161b27;--bg3:#1e2535;--bg4:#252d3d;
+  --border:#2a3347;--border2:#3a4560;
+  --accent:#6c63ff;--accent2:#8b85ff;--accent3:#4f46e5;
+  --green:#22c55e;--green2:#16a34a;
+  --yellow:#f59e0b;--red:#ef4444;--blue:#3b82f6;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 4px 24px rgba(0,0,0,.4);
+  --glow:0 0 20px rgba(108,99,255,.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;overflow-x:hidden}
+button{cursor:pointer;border:none;outline:none;font-family:inherit}
+input,select,textarea{font-family:inherit;outline:none}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 
-    /* HEADER */
-    .header {
-      background: var(--bg-secondary);
-      border-bottom: 1px solid var(--border);
-      padding: 0 20px;
-      height: 56px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
-      z-index: 100;
-    }
-    .header-logo { font-size: 22px; }
-    .header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-    .header-empresa {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 6px 12px;
-      cursor: pointer;
-      font-size: 13px;
-      color: var(--text-secondary);
-      transition: border-color 0.2s;
-    }
-    .header-empresa:hover { border-color: var(--primary); color: var(--text-primary); }
-    .header-empresa .empresa-nombre { color: var(--text-primary); font-weight: 600; }
+.app{display:flex;height:100vh}
 
-    /* LAYOUT */
-    .layout { display: flex; flex: 1; overflow: hidden; }
+/* Sidebar */
+.sidebar{width:230px;min-width:230px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-logo{padding:18px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--accent3),var(--accent));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:var(--glow);flex-shrink:0}
+.logo-text{font-weight:800;font-size:14px}
+.logo-sub{font-size:10px;color:var(--text3)}
+.sidebar-emp{padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.sidebar-emp:hover{background:var(--bg3)}
+.emp-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.emp-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.emp-rut{font-size:11px;color:var(--text2)}
+.sidebar-nav{flex:1;overflow-y:auto;padding:6px 0}
+.nav-sec{padding:10px 14px 3px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.nav-item{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:pointer;transition:all .12s;color:var(--text2);font-size:13px;border-left:3px solid transparent}
+.nav-item:hover{background:var(--bg3);color:var(--text)}
+.nav-item.active{background:rgba(108,99,255,.12);color:var(--accent2);border-left-color:var(--accent)}
+.nav-icon{font-size:15px;width:18px;text-align:center;flex-shrink:0}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:9px;padding:2px 5px;border-radius:10px;font-weight:700}
+.sidebar-foot{padding:10px 14px;border-top:1px solid var(--border)}
+.model-pill{display:flex;align-items:center;gap:7px;padding:7px 10px;background:var(--bg3);border-radius:var(--radius-sm);font-size:11px}
+.model-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0}
+.model-dot.online{background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-    /* SIDEBAR */
-    .sidebar {
-      width: 220px;
-      background: var(--bg-secondary);
-      border-right: 1px solid var(--border);
-      padding: 12px 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      flex-shrink: 0;
-      overflow-y: auto;
-    }
-    .sidebar-section {
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--text-secondary);
-      padding: 12px 10px 4px;
-    }
-    .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 9px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 13.5px;
-      color: var(--text-secondary);
-      transition: all 0.15s;
-      user-select: none;
-    }
-    .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-    .nav-item.active { background: rgba(99,102,241,0.15); color: var(--primary-light); font-weight: 600; }
-    .nav-item i { width: 16px; text-align: center; font-size: 14px; }
-    .nav-badge {
-      margin-left: auto;
-      background: var(--danger);
-      color: white;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 1px 6px;
-      border-radius: 10px;
-      min-width: 18px;
-      text-align: center;
-      display: none;
-    }
+/* Main */
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.topbar{height:54px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 22px;gap:14px;flex-shrink:0}
+.topbar-title{font-size:15px;font-weight:700;flex:1}
+.topbar-sub{font-size:11px;color:var(--text3)}
+.content{flex:1;overflow-y:auto;padding:22px}
 
-    /* CONTENT */
-    .content { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
+/* Cards */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.card-title{font-size:13px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:7px}
 
-    /* VIEWS */
-    .view { display: none; flex-direction: column; flex: 1; }
-    .view.active { display: flex; }
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;transition:border-color .15s}
+.kpi-card:hover{border-color:var(--border2)}
+.kpi-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.kpi-value{font-size:20px;font-weight:800;margin-bottom:3px}
+.kpi-sub{font-size:10px;color:var(--text3)}
 
-    /* AGENT CHAT */
-    #view-agente { display: none; flex-direction: column; height: 100%; }
-    #view-agente.active { display: flex; }
-    .chat-header {
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-secondary);
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
-    }
-    .agent-avatar {
-      width: 40px; height: 40px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
-    }
-    .agent-info h3 { font-size: 15px; font-weight: 700; }
-    .agent-info p { font-size: 12px; color: var(--success); }
-    .agent-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 4px; }
-    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
-    .msg { display: flex; gap: 10px; max-width: 82%; animation: msgIn 0.2s ease; }
-    @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-    .msg.user { flex-direction: row-reverse; align-self: flex-end; }
-    .msg-avatar {
-      width: 32px; height: 32px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 14px; flex-shrink: 0;
-    }
-    .msg.agent .msg-avatar { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
-    .msg.user .msg-avatar { background: var(--bg-secondary); border: 1px solid var(--border); }
-    .msg-bubble { padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.55; }
-    .msg.agent .msg-bubble { background: var(--bg-secondary); border: 1px solid var(--border); border-top-left-radius: 4px; }
-    .msg.user .msg-bubble { background: var(--primary); color: white; border-top-right-radius: 4px; }
-    .msg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    .msg-btn {
-      padding: 8px 16px; border-radius: 20px;
-      border: 1px solid var(--primary); background: transparent;
-      color: var(--primary-light); font-size: 13px; cursor: pointer; transition: all 0.15s;
-    }
-    .msg-btn:hover { background: var(--primary); color: white; }
-    .msg-btn:disabled { opacity: 0.5; cursor: default; }
-    .msg-form {
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: 12px; padding: 14px; margin-top: 10px;
-      display: flex; flex-direction: column; gap: 10px;
-    }
-    .msg-form input, .msg-form select {
-      background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: 8px; padding: 10px 14px; color: var(--text-primary); font-size: 14px; width: 100%;
-    }
-    .msg-form input:focus, .msg-form select:focus { outline: none; border-color: var(--primary); }
-    .typing-indicator {
-      display: flex; gap: 4px; padding: 12px 16px;
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: 16px; border-top-left-radius: 4px; width: fit-content;
-    }
-    .typing-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--text-secondary); animation: typing 1.2s infinite;
-    }
-    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes typing { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
-    .chat-input-area {
-      padding: 12px 20px; border-top: 1px solid var(--border);
-      background: var(--bg-secondary); display: flex; gap: 10px; flex-shrink: 0;
-    }
-    .chat-input {
-      flex: 1; background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: 24px; padding: 10px 18px; color: var(--text-primary); font-size: 14px;
-    }
-    .chat-input:focus { outline: none; border-color: var(--primary); }
-    .chat-send {
-      width: 40px; height: 40px; border-radius: 50%;
-      background: var(--primary); border: none; color: white;
-      cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s;
-    }
-    .chat-send:hover { background: var(--primary-dark); }
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:var(--radius-sm);font-size:12px;font-weight:600;transition:all .12s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2);box-shadow:var(--glow)}
+.btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--border2)}
+.btn-success{background:var(--green2);color:#fff}
+.btn-success:hover{background:var(--green)}
+.btn-danger{background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b}
+.btn-sm{padding:5px 10px;font-size:11px}
+.btn-lg{padding:11px 22px;font-size:13px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
 
-    /* PAGE LAYOUT */
-    .page-header { padding: 24px 28px 0; flex-shrink: 0; }
-    .page-header h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-    .page-header p { font-size: 13px; color: var(--text-secondary); }
-    .page-body { padding: 20px 28px; flex: 1; overflow-y: auto; }
+/* Upload */
+.upload-zone{border:2px dashed var(--border2);border-radius:var(--radius);padding:44px 20px;text-align:center;transition:all .2s;cursor:pointer;background:var(--bg3);position:relative}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:rgba(108,99,255,.06)}
+.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-icon{font-size:44px;margin-bottom:10px;opacity:.5}
+.upload-title{font-size:15px;font-weight:700;margin-bottom:5px}
+.upload-sub{font-size:12px;color:var(--text3)}
 
-    /* UPLOAD */
-    .upload-zone {
-      border: 2px dashed var(--border); border-radius: var(--radius-lg);
-      padding: 48px 24px; text-align: center; cursor: pointer;
-      transition: all 0.2s; background: var(--bg-secondary); margin-bottom: 24px;
-    }
-    .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: rgba(99,102,241,0.05); }
-    .upload-zone i { font-size: 40px; color: var(--text-secondary); margin-bottom: 12px; display: block; }
-    .upload-zone h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-    .upload-zone p { font-size: 13px; color: var(--text-secondary); }
-    .upload-btn {
-      display: inline-block; margin-top: 16px; padding: 10px 24px;
-      background: var(--primary); color: white; border-radius: 8px;
-      font-size: 14px; font-weight: 600; cursor: pointer;
-    }
+/* ═══════════════════════════════════════════════════════
+   PIPELINE AGÉNTICO — Diseño moderno
+═══════════════════════════════════════════════════════ */
+.pipeline-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:18px}
+.pipeline-head{
+  padding:14px 18px;border-bottom:1px solid var(--border);
+  background:linear-gradient(135deg,rgba(108,99,255,.12),rgba(79,70,229,.04));
+  display:flex;align-items:center;gap:10px;
+}
+.pipeline-head .ph-icon{font-size:22px}
+.pipeline-head .ph-info{flex:1}
+.pipeline-head .ph-title{font-size:14px;font-weight:700}
+.pipeline-head .ph-file{font-size:11px;color:var(--text3);margin-top:1px}
+.pipeline-head .ph-status{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(108,99,255,.15);color:var(--accent2)}
+.pipeline-head .ph-status.done{background:rgba(34,197,94,.15);color:var(--green)}
+.pipeline-head .ph-status.error{background:rgba(239,68,68,.15);color:var(--red)}
 
-    /* AI PANEL */
-    .ai-categorize-panel {
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; display: none;
-    }
-    .ai-categorize-panel.visible { display: block; }
-    .ai-panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-    .ai-panel-header i { color: var(--primary); font-size: 18px; }
-    .ai-panel-header h3 { font-size: 16px; font-weight: 700; }
-    .ai-suggestion {
-      background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3);
-      border-radius: 10px; padding: 16px; margin-bottom: 16px;
-    }
-    .ai-suggestion-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--primary-light); letter-spacing: 0.08em; margin-bottom: 6px; }
-    .ai-suggestion-value { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
-    .ai-suggestion-reason { font-size: 12px; color: var(--text-secondary); }
-    .ai-confidence { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-    .confidence-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-    .confidence-fill { height: 100%; background: var(--success); border-radius: 2px; transition: width 0.5s; }
-    .confidence-text { font-size: 11px; color: var(--text-secondary); }
-    .ai-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .extracted-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
-    .field-item { background: var(--bg-primary); border-radius: 8px; padding: 12px; }
-    .field-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
-    .field-value { font-size: 14px; font-weight: 600; }
-    .field-value.empty { color: var(--text-secondary); font-weight: 400; font-style: italic; }
+.pipeline-steps{padding:0}
+.p-step{display:flex;gap:0;border-bottom:1px solid var(--border);transition:background .15s}
+.p-step:last-child{border-bottom:none}
+.p-step:hover{background:rgba(255,255,255,.02)}
+.p-step-left{width:56px;display:flex;flex-direction:column;align-items:center;padding:14px 0;flex-shrink:0}
+.p-step-num{
+  width:34px;height:34px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:700;flex-shrink:0;
+  transition:all .3s;
+  border:2px solid var(--border);background:var(--bg3);color:var(--text3);
+}
+.p-step-num.waiting{border-color:var(--border);background:var(--bg3);color:var(--text3)}
+.p-step-num.running{
+  border-color:var(--accent);background:rgba(108,99,255,.15);color:var(--accent2);
+  box-shadow:0 0 0 4px rgba(108,99,255,.15);
+  animation:step-pulse 1.2s ease-in-out infinite;
+}
+@keyframes step-pulse{0%,100%{box-shadow:0 0 0 0 rgba(108,99,255,.4)}50%{box-shadow:0 0 0 8px rgba(108,99,255,0)}}
+.p-step-num.done{border-color:var(--green);background:rgba(34,197,94,.12);color:var(--green)}
+.p-step-num.error{border-color:var(--red);background:rgba(239,68,68,.12);color:var(--red)}
+.p-step-num.skip{border-color:var(--text3);background:var(--bg3);color:var(--text3);opacity:.5}
+.p-step-line{width:2px;flex:1;background:var(--border);margin-top:4px;min-height:10px}
+.p-step-line.done{background:var(--green)}
 
-    /* BUTTONS */
-    .btn {
-      padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
-      cursor: pointer; border: none; transition: all 0.15s;
-      display: inline-flex; align-items: center; gap: 8px;
-    }
-    .btn-primary { background: var(--primary); color: white; }
-    .btn-primary:hover { background: var(--primary-dark); }
-    .btn-success { background: var(--success); color: white; }
-    .btn-success:hover { background: #16a34a; }
-    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
-    .btn-outline:hover { border-color: var(--primary); color: var(--primary-light); }
-    .btn-danger { background: var(--danger); color: white; }
-    .btn-sm { padding: 6px 14px; font-size: 12px; }
+.p-step-right{flex:1;padding:12px 16px 12px 0}
+.p-step-name{font-size:13px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+.p-step-msg{font-size:12px;color:var(--text2);line-height:1.5}
+.p-step-msg.running{color:var(--accent2)}
+.p-step-msg.done{color:var(--green)}
+.p-step-msg.error{color:var(--red)}
+.p-step-msg.skip{color:var(--text3)}
 
-    /* DOCS */
-    .doc-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
-    .doc-filter-btn {
-      padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border);
-      background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.15s;
-    }
-    .doc-filter-btn.active { background: var(--primary); border-color: var(--primary); color: white; }
-    .doc-search {
-      flex: 1; min-width: 200px; background: var(--bg-secondary);
-      border: 1px solid var(--border); border-radius: 8px;
-      padding: 8px 14px; color: var(--text-primary); font-size: 13px;
-    }
-    .doc-search:focus { outline: none; border-color: var(--primary); }
-    .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-    .doc-card {
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: var(--radius); overflow: hidden; cursor: pointer; transition: all 0.15s;
-    }
-    .doc-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-    .doc-card-preview {
-      height: 150px; background: var(--bg-primary);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 48px; color: var(--text-secondary); position: relative; overflow: hidden;
-    }
-    .doc-card-preview img { width: 100%; height: 100%; object-fit: cover; }
-    .doc-type-badge {
-      position: absolute; top: 8px; right: 8px;
-      background: rgba(0,0,0,0.7); color: white; font-size: 10px;
-      font-weight: 700; padding: 3px 8px; border-radius: 4px; text-transform: uppercase;
-    }
-    .doc-card-body { padding: 14px; }
-    .doc-card-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .doc-card-meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
-    .doc-card-footer { display: flex; align-items: center; justify-content: space-between; }
-    .doc-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px; }
-    .doc-status.pendiente { background: rgba(245,158,11,0.15); color: var(--warning); }
-    .doc-status.aprobado { background: rgba(34,197,94,0.15); color: var(--success); }
-    .doc-status.rechazado { background: rgba(239,68,68,0.15); color: var(--danger); }
-    .doc-status.procesando { background: rgba(99,102,241,0.15); color: var(--primary-light); }
-    .doc-amount { font-size: 15px; font-weight: 700; }
+.p-step-data{margin-top:8px}
+.p-step-fields{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.p-field{background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px}
+.p-field .pk{color:var(--text3);margin-right:3px}
+.p-field .pv{color:var(--accent2);font-weight:700}
+.p-step-preview{
+  margin-top:8px;background:var(--bg3);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:10px;
+  font-size:11px;color:var(--text2);line-height:1.6;
+}
+.p-step-preview pre{white-space:pre-wrap;word-break:break-word;font-family:'Courier New',monospace;font-size:10px;max-height:120px;overflow-y:auto}
+.p-cat-suggest{
+  margin-top:8px;background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.25);
+  border-radius:var(--radius-sm);padding:10px;
+}
+.p-cat-name{font-size:14px;font-weight:700;color:var(--accent2)}
+.p-cat-reason{font-size:11px;color:var(--text3);margin-top:2px}
+.p-conf-bar{height:4px;background:var(--bg4);border-radius:2px;margin-top:6px;overflow:hidden}
+.p-conf-fill{height:100%;border-radius:2px;transition:width .6s ease}
+.p-conf-fill.high{background:var(--green)}
+.p-conf-fill.med{background:var(--yellow)}
+.p-conf-fill.low{background:var(--red)}
+.p-conf-label{text-align:right;font-size:10px;color:var(--text3);margin-top:2px}
 
-    /* MODAL */
-    .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-      z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px;
-    }
-    .modal-overlay.open { display: flex; }
-    .modal {
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); width: 100%; max-width: 900px;
-      max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
-    }
-    .modal-header {
-      padding: 20px 24px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
-    }
-    .modal-header h3 { font-size: 17px; font-weight: 700; }
-    .modal-close {
-      width: 32px; height: 32px; border-radius: 8px; border: none;
-      background: var(--bg-primary); color: var(--text-secondary);
-      cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
-    }
-    .modal-close:hover { color: var(--text-primary); }
-    .modal-body { display: flex; flex: 1; overflow: hidden; }
-    .modal-preview {
-      width: 45%; background: var(--bg-primary);
-      display: flex; align-items: center; justify-content: center;
-      padding: 20px; flex-shrink: 0; border-right: 1px solid var(--border);
-    }
-    .modal-preview img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
-    .no-preview { text-align: center; color: var(--text-secondary); }
-    .no-preview i { font-size: 64px; margin-bottom: 12px; display: block; }
-    .modal-details { flex: 1; padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
-    .detail-section h4 {
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 10px;
-    }
-    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .detail-field { display: flex; flex-direction: column; gap: 3px; }
-    .detail-field label { font-size: 11px; color: var(--text-secondary); }
-    .detail-field span { font-size: 14px; font-weight: 500; }
-    .detail-field select {
-      background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: 6px; padding: 8px 10px; color: var(--text-primary); font-size: 13px; margin-top: 4px;
-    }
-    .detail-field select:focus { outline: none; border-color: var(--primary); }
-    .modal-footer {
-      padding: 16px 24px; border-top: 1px solid var(--border);
-      display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0;
-    }
-    .ocr-text-box {
-      background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: 8px; padding: 12px; font-size: 12px; color: var(--text-secondary);
-      line-height: 1.6; max-height: 150px; overflow-y: auto; font-family: monospace; white-space: pre-wrap;
-    }
+/* Result Panel */
+.result-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:18px}
+.result-head{
+  padding:14px 18px;border-bottom:1px solid var(--border);
+  background:linear-gradient(135deg,rgba(34,197,94,.08),rgba(22,163,74,.03));
+  display:flex;align-items:center;gap:10px;
+}
+.result-body{padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.r-field{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px}
+.r-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.r-value{font-size:13px;font-weight:700}
+.r-value.empty{color:var(--text3);font-weight:400;font-style:italic;font-size:12px}
+.result-cat{padding:14px 18px;border-top:1px solid var(--border)}
+.result-actions{padding:14px 18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cat-row{display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap}
+.cat-row label{font-size:12px;color:var(--text2);white-space:nowrap}
+.cat-row select{flex:1;min-width:160px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:var(--radius-sm);font-size:12px}
 
-    /* DASHBOARD */
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .kpi-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
-    .kpi-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
-    .kpi-value { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
-    .kpi-sub { font-size: 12px; color: var(--text-secondary); }
-    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .chart-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
-    .chart-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-secondary); }
+/* Doc Grid */
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.doc-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all .15s}
+.doc-card:hover{border-color:var(--border2);transform:translateY(-2px);box-shadow:var(--shadow)}
+.doc-thumb{height:130px;background:var(--bg3);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.doc-thumb img{width:100%;height:100%;object-fit:cover}
+.doc-thumb .dt-icon{font-size:36px;opacity:.35}
+.doc-status{position:absolute;top:7px;right:7px;padding:2px 7px;border-radius:20px;font-size:9px;font-weight:700}
+.doc-info{padding:10px}
+.doc-prov{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.doc-meta{font-size:10px;color:var(--text3);margin-top:2px}
+.doc-amount{font-size:14px;font-weight:800;color:var(--accent2);margin-top:5px}
+.doc-cat{display:inline-block;margin-top:5px;background:rgba(108,99,255,.12);color:var(--accent2);font-size:9px;padding:2px 7px;border-radius:20px}
 
-    /* EMPTY STATE */
-    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; text-align: center; color: var(--text-secondary); }
-    .empty-state i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
-    .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
-    .empty-state p { font-size: 13px; max-width: 320px; line-height: 1.5; }
+/* Badges */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700}
+.badge-pendiente{background:rgba(245,158,11,.15);color:var(--yellow)}
+.badge-revisado{background:rgba(34,197,94,.15);color:var(--green)}
+.badge-rechazado{background:rgba(239,68,68,.15);color:var(--red)}
+.badge-processing{background:rgba(108,99,255,.15);color:var(--accent2)}
 
-    /* SPINNER */
-    .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+/* Filters */
+.filters-bar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.filters-bar input{flex:1;min-width:180px;max-width:280px;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:var(--radius-sm);font-size:12px}
+.filters-bar input:focus{border-color:var(--accent)}
+.filter-tabs{display:flex;gap:3px}
+.filter-tab{padding:5px 11px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;background:var(--bg2);border:1px solid var(--border);color:var(--text2);cursor:pointer;transition:all .12s}
+.filter-tab.active{background:rgba(108,99,255,.15);color:var(--accent2);border-color:var(--accent)}
 
-    /* PROGRESS */
-    .progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; }
-    .progress-fill { height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.3s; }
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:min(840px,95vw);max-height:90vh;overflow:hidden;display:flex;flex-direction:column;transform:scale(.95);transition:transform .2s}
+.modal-overlay.open .modal{transform:scale(1)}
+.modal-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.modal-title{font-size:14px;font-weight:700;flex:1}
+.modal-close{width:26px;height:26px;border-radius:6px;background:var(--bg3);color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;transition:all .12s}
+.modal-close:hover{background:var(--bg4);color:var(--text)}
+.modal-body{padding:18px;overflow-y:auto;flex:1}
+.modal-footer{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
 
-    /* TOAST */
-    #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
-    .toast {
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: 10px; padding: 12px 18px; font-size: 13px;
-      display: flex; align-items: center; gap: 10px; min-width: 260px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3); animation: toastIn 0.3s ease;
-    }
-    @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
-    .toast.success { border-left: 3px solid var(--success); }
-    .toast.error { border-left: 3px solid var(--danger); }
-    .toast.info { border-left: 3px solid var(--primary); }
+/* Doc Detail */
+.doc-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.doc-preview{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:280px}
+.doc-preview img{max-width:100%;max-height:380px;object-fit:contain}
+.no-preview{text-align:center;padding:28px;color:var(--text3)}
+.no-preview .np-icon{font-size:44px;margin-bottom:10px}
+.doc-fields{display:flex;flex-direction:column;gap:8px}
+.dfr{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 11px}
+.dfr-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.dfr-value{font-size:13px;font-weight:700}
+.dfr-value.empty{color:var(--text3);font-weight:400;font-style:italic}
+.ocr-panel{margin-top:14px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px}
+.ocr-title{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.ocr-panel pre{font-size:10px;color:var(--text2);white-space:pre-wrap;word-break:break-word;max-height:180px;overflow-y:auto;line-height:1.6;font-family:monospace}
 
-    /* SCROLLBAR */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #475569; }
-  </style>
+/* Forms */
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;font-weight:600}
+.form-input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:var(--radius-sm);font-size:13px;transition:border-color .12s}
+.form-input:focus{border-color:var(--accent)}
+.form-select{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 11px;border-radius:var(--radius-sm);font-size:13px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* Onboarding */
+.onboarding{max-width:520px;margin:50px auto;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.ob-header{padding:28px;text-align:center;background:linear-gradient(135deg,rgba(108,99,255,.15),rgba(79,70,229,.04));border-bottom:1px solid var(--border)}
+.ob-icon{font-size:52px;margin-bottom:10px}
+.ob-title{font-size:20px;font-weight:800;margin-bottom:6px}
+.ob-sub{font-size:13px;color:var(--text2);line-height:1.6}
+.ob-body{padding:24px}
+.ob-step{display:none;animation:fadeIn .25s ease}
+.ob-step.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.ob-dots{display:flex;gap:5px;justify-content:center;margin-bottom:20px}
+.ob-dot{width:7px;height:7px;border-radius:50%;background:var(--border2);transition:all .2s}
+.ob-dot.active{background:var(--accent);transform:scale(1.3)}
+.ob-dot.done{background:var(--green)}
+.ob-counter{font-size:10px;color:var(--text3);text-align:center;margin-bottom:14px}
+
+/* Charts */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.chart-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.chart-card canvas{max-height:220px}
+
+/* Empty State */
+.empty-state{text-align:center;padding:50px 20px}
+.es-icon{font-size:50px;margin-bottom:14px;opacity:.35}
+.es-title{font-size:15px;font-weight:700;margin-bottom:6px}
+.es-sub{font-size:12px;color:var(--text3);margin-bottom:18px;line-height:1.6}
+
+/* Toast */
+.toast-container{position:fixed;top:18px;right:18px;z-index:2000;display:flex;flex-direction:column;gap:6px}
+.toast{padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;display:flex;align-items:center;gap:8px;min-width:260px;box-shadow:var(--shadow);animation:slideIn .25s ease}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.toast.success{background:#14532d;border:1px solid var(--green2);color:#bbf7d0}
+.toast.error{background:#7f1d1d;border:1px solid #991b1b;color:#fca5a5}
+.toast.info{background:#1e3a5f;border:1px solid var(--blue);color:#bfdbfe}
+
+/* Spinner */
+.spinner{width:18px;height:18px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .65s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media(max-width:768px){
+  .sidebar{width:0;min-width:0;overflow:hidden}
+  .form-row{grid-template-columns:1fr}
+  .doc-detail-grid{grid-template-columns:1fr}
+  .charts-grid{grid-template-columns:1fr}
+  .result-body{grid-template-columns:1fr}
+}
+</style>
 </head>
 <body>
 
-<!-- HEADER -->
-<div class="header">
-  <span class="header-logo">📒</span>
-  <h1>Pyme Ledger AI</h1>
-  <div class="header-empresa" onclick="showView('agente')">
-    <i class="fa-solid fa-building"></i>
-    <span class="empresa-nombre" id="header-empresa-nombre">Sin empresa</span>
-    <i class="fa-solid fa-chevron-down" style="font-size:11px"></i>
-  </div>
-</div>
+<div class="toast-container" id="toastContainer"></div>
 
-<!-- LAYOUT -->
-<div class="layout">
-
-  <!-- SIDEBAR -->
+<div class="app">
+  <!-- Sidebar -->
   <nav class="sidebar">
-    <div class="sidebar-section">Principal</div>
-    <div class="nav-item active" data-view="agente" onclick="showView('agente')">
-      <i class="fa-solid fa-robot"></i> Asistente
+    <div class="sidebar-logo">
+      <div class="logo-icon">📒</div>
+      <div><div class="logo-text">Ledger AI</div><div class="logo-sub">Contabilidad con IA</div></div>
     </div>
-    <div class="nav-item" data-view="ingesta" onclick="showView('ingesta')">
-      <i class="fa-solid fa-file-arrow-up"></i> Nuevo Gasto
+    <div class="sidebar-emp" onclick="showSection('admin')">
+      <div class="emp-label">Empresa activa</div>
+      <div class="emp-name" id="sidebarEmpName">Sin empresa</div>
+      <div class="emp-rut" id="sidebarEmpRut">—</div>
     </div>
-    <div class="nav-item" data-view="documentos" onclick="showView('documentos')">
-      <i class="fa-solid fa-folder-open"></i> Documentos
-      <span class="nav-badge" id="badge-pendientes">0</span>
+    <div class="sidebar-nav">
+      <div class="nav-sec">Principal</div>
+      <div class="nav-item active" data-s="dashboard" onclick="showSection('dashboard')"><span class="nav-icon">📊</span>Dashboard</div>
+      <div class="nav-item" data-s="nuevo-gasto" onclick="showSection('nuevo-gasto')"><span class="nav-icon">➕</span>Nuevo Gasto</div>
+      <div class="nav-item" data-s="documentos" onclick="showSection('documentos')">
+        <span class="nav-icon">📁</span>Documentos
+        <span class="nav-badge" id="pendingBadge">0</span>
+      </div>
+      <div class="nav-sec">Análisis</div>
+      <div class="nav-item" data-s="analitica" onclick="showSection('analitica')"><span class="nav-icon">📈</span>Analítica</div>
+      <div class="nav-item" data-s="recomendaciones" onclick="showSection('recomendaciones')"><span class="nav-icon">💡</span>Recomendaciones</div>
+      <div class="nav-sec">Config</div>
+      <div class="nav-item" data-s="admin" onclick="showSection('admin')"><span class="nav-icon">⚙️</span>Administración</div>
     </div>
-    <div class="sidebar-section">Análisis</div>
-    <div class="nav-item" data-view="dashboard" onclick="showView('dashboard')">
-      <i class="fa-solid fa-chart-pie"></i> Dashboard
-    </div>
-    <div class="sidebar-section">Configuración</div>
-    <div class="nav-item" data-view="config" onclick="showView('config')">
-      <i class="fa-solid fa-gear"></i> Empresa y Categorías
+    <div class="sidebar-foot">
+      <div class="model-pill">
+        <div class="model-dot" id="modelDot"></div>
+        <div><div style="font-weight:700;color:var(--text);font-size:11px" id="modelName">Detectando...</div><div style="color:var(--text3);font-size:10px">Modelo IA</div></div>
+      </div>
     </div>
   </nav>
 
-  <!-- CONTENT -->
-  <div class="content">
-
-    <!-- ══ AGENTE ══ -->
-    <div class="view active" id="view-agente">
-      <div class="chat-header">
-        <div class="agent-avatar">🤖</div>
-        <div class="agent-info">
-          <h3>Asistente Contable</h3>
-          <p><span class="agent-status-dot"></span>En línea · IA local</p>
-        </div>
-      </div>
-      <div class="chat-messages" id="chat-messages"></div>
-      <div class="chat-input-area">
-        <input class="chat-input" id="chat-input" placeholder="Escribe un mensaje o pregunta..." onkeydown="if(event.key==='Enter')sendChatMessage()">
-        <button class="chat-send" onclick="sendChatMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div><div class="topbar-title" id="topbarTitle">Dashboard</div><div class="topbar-sub" id="topbarSub">Resumen de actividad</div></div>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="showSection('nuevo-gasto')">➕ Nuevo Gasto</button>
+        <button class="btn btn-primary btn-sm" onclick="exportData()">⬇ Exportar</button>
       </div>
     </div>
+    <div class="content" id="mainContent"></div>
+  </div>
+</div>
 
-    <!-- ══ INGESTA ══ -->
-    <div class="view" id="view-ingesta">
-      <div class="page-header">
-        <h2><i class="fa-solid fa-file-arrow-up" style="color:var(--primary);margin-right:8px"></i>Nuevo Gasto</h2>
-        <p>Sube un documento y el agente identificará automáticamente la categoría del gasto.</p>
-      </div>
-      <div class="page-body">
-
-        <div class="upload-zone" id="upload-zone"
-          ondragover="event.preventDefault();this.classList.add('drag-over')"
-          ondragleave="this.classList.remove('drag-over')"
-          ondrop="handleFileDrop(event)">
-          <i class="fa-solid fa-cloud-arrow-up"></i>
-          <h3>Arrastra tu documento aquí</h3>
-          <p>Facturas, boletas, recibos en PDF, JPG o PNG</p>
-          <label class="upload-btn">
-            <i class="fa-solid fa-folder-open"></i> Seleccionar archivo
-            <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleFileSelect(event)">
-          </label>
-        </div>
-
-        <div id="processing-indicator" style="display:none;text-align:center;padding:24px">
-          <div class="spinner" style="width:32px;height:32px;margin:0 auto 12px"></div>
-          <p style="color:var(--text-secondary)" id="processing-msg">Procesando documento...</p>
-          <div class="progress-bar" style="max-width:300px;margin:12px auto 0">
-            <div class="progress-fill" id="processing-progress" style="width:0%"></div>
-          </div>
-        </div>
-
-        <div class="ai-categorize-panel" id="ai-panel">
-          <div class="ai-panel-header">
-            <i class="fa-solid fa-brain"></i>
-            <h3>Análisis del Agente IA</h3>
-          </div>
-          <div id="extracted-fields-container"></div>
-          <div id="ai-suggestion-container" style="margin-top:16px"></div>
-          <div class="ai-actions" id="ai-actions" style="margin-top:16px"></div>
-        </div>
-
-        <div id="manual-category-panel" style="display:none;margin-top:16px">
-          <div class="ai-categorize-panel visible" style="margin-bottom:0">
-            <div class="ai-panel-header">
-              <i class="fa-solid fa-tag"></i>
-              <h3>Asignar Categoría Manualmente</h3>
-            </div>
-            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-              <div style="flex:1;min-width:200px">
-                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">Categoría</label>
-                <select id="manual-category-select" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text-primary);font-size:14px">
-                  <option value="">Seleccionar categoría...</option>
-                </select>
-              </div>
-              <button class="btn btn-primary" onclick="applyManualCategory()">
-                <i class="fa-solid fa-check"></i> Aplicar y Aprobar
-              </button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- ══ DOCUMENTOS ══ -->
-    <div class="view" id="view-documentos">
-      <div class="page-header">
-        <h2><i class="fa-solid fa-folder-open" style="color:var(--primary);margin-right:8px"></i>Documentos</h2>
-        <p>Revisa todos los documentos procesados. Haz clic en cualquiera para ver el detalle, el texto extraído y aprobar o rechazar.</p>
-      </div>
-      <div class="page-body">
-        <div class="doc-filters">
-          <button class="doc-filter-btn active" onclick="filterDocs('todos',this)">Todos</button>
-          <button class="doc-filter-btn" onclick="filterDocs('pendiente',this)">Pendientes</button>
-          <button class="doc-filter-btn" onclick="filterDocs('aprobado',this)">Aprobados</button>
-          <button class="doc-filter-btn" onclick="filterDocs('rechazado',this)">Rechazados</button>
-          <input class="doc-search" placeholder="🔍 Buscar por proveedor, folio, categoría..." id="doc-search" oninput="searchDocs(this.value)">
-        </div>
-        <div class="doc-grid" id="doc-grid">
-          <div class="empty-state" style="grid-column:1/-1">
-            <i class="fa-solid fa-folder-open"></i>
-            <h3>Sin documentos</h3>
-            <p>Sube tu primer documento en "Nuevo Gasto"</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ══ DASHBOARD ══ -->
-    <div class="view" id="view-dashboard">
-      <div class="page-header">
-        <h2><i class="fa-solid fa-chart-pie" style="color:var(--primary);margin-right:8px"></i>Dashboard</h2>
-        <p>Resumen financiero de tu empresa.</p>
-      </div>
-      <div class="page-body">
-        <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Total Gastos</div><div class="kpi-value" id="kpi-total">—</div><div class="kpi-sub">Este período</div></div>
-          <div class="kpi-card"><div class="kpi-label">Documentos</div><div class="kpi-value" id="kpi-docs">—</div><div class="kpi-sub">Procesados</div></div>
-          <div class="kpi-card"><div class="kpi-label">Pendientes</div><div class="kpi-value" id="kpi-pendientes">—</div><div class="kpi-sub">Por revisar</div></div>
-          <div class="kpi-card"><div class="kpi-label">Proveedores</div><div class="kpi-value" id="kpi-proveedores">—</div><div class="kpi-sub">Únicos</div></div>
-        </div>
-        <div class="charts-grid">
-          <div class="chart-card"><h3>Gastos por Categoría</h3><canvas id="chart-categorias" height="200"></canvas></div>
-          <div class="chart-card"><h3>Tendencia Mensual</h3><canvas id="chart-tendencia" height="200"></canvas></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ══ CONFIG ══ -->
-    <div class="view" id="view-config">
-      <div class="page-header">
-        <h2><i class="fa-solid fa-gear" style="color:var(--primary);margin-right:8px"></i>Configuración</h2>
-        <p>Gestiona tu empresa y categorías contables.</p>
-      </div>
-      <div class="page-body">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-          <div class="chart-card">
-            <h3 style="margin-bottom:16px"><i class="fa-solid fa-building" style="margin-right:8px;color:var(--primary)"></i>Empresa Activa</h3>
-            <div id="config-empresa-info" style="margin-bottom:16px"></div>
-            <button class="btn btn-outline btn-sm" onclick="showCreateEmpresaForm()">
-              <i class="fa-solid fa-plus"></i> Nueva Empresa
-            </button>
-            <div id="create-empresa-form" style="display:none;margin-top:16px">
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <input id="new-razon-social" placeholder="Razón Social *" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text-primary);font-size:13px">
-                <input id="new-rut" placeholder="RUT (ej: 76.123.456-7)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text-primary);font-size:13px">
-                <input id="new-giro" placeholder="Giro / Actividad" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text-primary);font-size:13px">
-                <div style="display:flex;gap:8px">
-                  <button class="btn btn-primary btn-sm" onclick="createEmpresa()"><i class="fa-solid fa-check"></i> Crear</button>
-                  <button class="btn btn-outline btn-sm" onclick="document.getElementById('create-empresa-form').style.display='none'">Cancelar</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="chart-card">
-            <h3 style="margin-bottom:16px"><i class="fa-solid fa-tags" style="margin-right:8px;color:var(--primary)"></i>Categorías Contables</h3>
-            <div id="config-categorias-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;max-height:220px;overflow-y:auto"></div>
-            <div style="display:flex;gap:8px">
-              <input id="new-categoria" placeholder="Nueva categoría..." style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px" onkeydown="if(event.key==='Enter')createCategoria()">
-              <button class="btn btn-primary btn-sm" onclick="createCategoria()"><i class="fa-solid fa-plus"></i></button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /content -->
-</div><!-- /layout -->
-
-<!-- MODAL DOCUMENTO -->
-<div class="modal-overlay" id="doc-modal">
+<!-- Modal Documento -->
+<div class="modal-overlay" id="docModal">
   <div class="modal">
-    <div class="modal-header">
-      <h3 id="modal-title">Documento</h3>
-      <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
-    </div>
+    <div class="modal-header"><div class="modal-title">📄 Detalle del Documento</div><div class="modal-close" onclick="closeModal('docModal')">✕</div></div>
+    <div class="modal-body" id="docModalBody"></div>
+    <div class="modal-footer" id="docModalFooter"></div>
+  </div>
+</div>
+
+<!-- Modal Nueva Empresa -->
+<div class="modal-overlay" id="empresaModal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><div class="modal-title">🏢 Nueva Empresa</div><div class="modal-close" onclick="closeModal('empresaModal')">✕</div></div>
     <div class="modal-body">
-      <div class="modal-preview" id="modal-preview-area"></div>
-      <div class="modal-details" id="modal-details-area"></div>
+      <div class="form-group"><label class="form-label">Razón Social *</label><input class="form-input" id="empRazonSocial" placeholder="Ej: Mi Empresa SpA"/></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">RUT / RUC</label><input class="form-input" id="empRut" placeholder="77.194.706-9"/></div>
+        <div class="form-group"><label class="form-label">País</label>
+          <select class="form-select" id="empPais">
+            <option value="Chile">Chile</option><option value="Peru">Perú</option>
+            <option value="Mexico">México</option><option value="Colombia">Colombia</option>
+            <option value="Argentina">Argentina</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Giro / Actividad</label><input class="form-input" id="empGiro" placeholder="Ej: Venta de Equipos Computacionales"/></div>
+      <div class="form-group"><label class="form-label">Moneda Base</label>
+        <select class="form-select" id="empMoneda">
+          <option value="CLP">CLP — Peso Chileno</option><option value="PEN">PEN — Sol Peruano</option>
+          <option value="MXN">MXN — Peso Mexicano</option><option value="USD">USD — Dólar</option>
+        </select>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
-      <button class="btn btn-danger btn-sm" onclick="modalAction('rechazado')">
-        <i class="fa-solid fa-xmark"></i> Rechazar
-      </button>
-      <button class="btn btn-success" onclick="modalAction('aprobado')">
-        <i class="fa-solid fa-check"></i> Aprobar
-      </button>
+      <button class="btn btn-secondary" onclick="closeModal('empresaModal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createEmpresa()">Crear Empresa</button>
     </div>
   </div>
 </div>
 
-<!-- TOAST -->
-<div id="toast-container"></div>
-
 <script>
-// ═══════════════════════════════════════════════════════════════
-// ESTADO GLOBAL
-// ═══════════════════════════════════════════════════════════════
+// ── Estado Global ─────────────────────────────────────────────────────────────
+const API = '';
 let state = {
-  empresa: null,
-  empresas: [],
-  categorias: [],
-  documentos: [],
-  docsFilter: 'todos',
-  docsSearch: '',
-  currentDoc: null,
-  processedDoc: null,
-  charts: {}
+  empresa: null, empresas: [], categorias: [], documentos: [],
+  currentSection: 'dashboard', processingDoc: null, charts: {}
 };
 
-// ═══════════════════════════════════════════════════════════════
-// NAVEGACIÓN
-// ═══════════════════════════════════════════════════════════════
-function showView(viewId) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const view = document.getElementById('view-' + viewId);
-  if (view) view.classList.add('active');
-  const nav = document.querySelector('[data-view="' + viewId + '"]');
-  if (nav) nav.classList.add('active');
-  if (viewId === 'documentos') loadDocumentos();
-  if (viewId === 'dashboard') loadDashboard();
-  if (viewId === 'config') loadConfig();
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TOAST
-// ═══════════════════════════════════════════════════════════════
-function toast(msg, type = 'info') {
-  const icons = { success: 'fa-check-circle', error: 'fa-circle-xmark', info: 'fa-circle-info' };
-  const colors = { success: 'var(--success)', error: 'var(--danger)', info: 'var(--primary)' };
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.innerHTML = `<i class="fa-solid ${icons[type]}" style="color:${colors[type]}"></i> ${msg}`;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 4000);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// API HELPER
-// ═══════════════════════════════════════════════════════════════
-async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error(txt || r.statusText);
-  }
-  return r.json();
-}
-
-// ═══════════════════════════════════════════════════════════════
-// INICIALIZACIÓN
-// ═══════════════════════════════════════════════════════════════
+// ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  try {
-    const data = await api('/api/empresas');
-    state.empresas = data.empresas || [];
-    if (state.empresas.length > 0) {
-      await setEmpresa(state.empresas[0]);
-      startAgentFlow('returning');
-    } else {
-      startAgentFlow('onboarding');
-    }
-  } catch (e) {
-    startAgentFlow('onboarding');
-  }
+  await loadEmpresas();
+  if (!state.empresas.length) { showOnboarding(); return; }
+  state.empresa = state.empresas[0];
+  updateSidebarEmpresa();
+  await loadCategorias();
+  showSection('dashboard');
+  checkOllamaStatus();
 }
 
-async function setEmpresa(empresa) {
-  state.empresa = empresa;
-  document.getElementById('header-empresa-nombre').textContent = empresa.razon_social;
-  try {
-    const data = await api('/api/empresas/' + empresa.id + '/categorias');
-    state.categorias = data.categorias || [];
-  } catch (e) {}
-  updateBadge();
+async function loadEmpresas() {
+  try { const r = await fetch(`${API}/api/empresas`); const d = await r.json(); state.empresas = d.empresas||[]; } catch(e) { state.empresas=[]; }
 }
-
-async function updateBadge() {
+async function loadCategorias() {
   if (!state.empresa) return;
+  try { const r = await fetch(`${API}/api/empresas/${state.empresa.id}/categorias`); const d = await r.json(); state.categorias = d.categorias||[]; } catch(e) { state.categorias=[]; }
+}
+
+async function checkOllamaStatus() {
   try {
-    const data = await api('/api/empresas/' + state.empresa.id + '/documentos');
-    const docs = data.documentos || [];
-    const count = docs.filter(d => d.estado_revision === 'pendiente').length;
-    const badge = document.getElementById('badge-pendientes');
-    badge.style.display = count > 0 ? 'inline-flex' : 'none';
-    badge.textContent = count;
-  } catch (e) {}
+    const r = await fetch('http://localhost:11434/api/tags', {signal:AbortSignal.timeout(3000)});
+    if (r.ok) {
+      const d = await r.json();
+      const models = (d.models||[]).map(m=>m.name);
+      const pref = ['qwen2.5','qwen3','llama3.2','llama3.1','gemma3','phi3','mistral'];
+      const found = models.find(m=>pref.some(p=>m.toLowerCase().includes(p)));
+      const name = found||models[0]||null;
+      document.getElementById('modelName').textContent = name ? name.split(':')[0] : 'Sin modelos';
+      document.getElementById('modelDot').className = 'model-dot ' + (name?'online':'');
+    }
+  } catch(e) { document.getElementById('modelName').textContent='Ollama offline'; }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AGENTE CHAT
-// ═══════════════════════════════════════════════════════════════
-let onboardingData = {};
-
-function startAgentFlow(mode) {
-  document.getElementById('chat-messages').innerHTML = '';
-  onboardingData = {};
-
-  if (mode === 'onboarding') {
-    addAgentMsg(
-      '¡Hola! Soy tu <strong>Asistente Contable IA</strong> 👋<br><br>' +
-      'Veo que aún no tienes una empresa configurada. Voy a ayudarte a configurar todo en menos de un minuto.<br><br>' +
-      '¿Empezamos?',
-      [
-        { label: '✅ Sí, configuremos', action: () => agentStep('ask_razon_social') },
-        { label: '⏩ Configurar manualmente', action: () => showView('config') }
-      ]
-    );
-  } else {
-    addAgentMsg(
-      `¡Bienvenido de vuelta! Estoy trabajando con <strong>${state.empresa.razon_social}</strong>.<br><br>¿Qué quieres hacer hoy?`,
-      [
-        { label: '📄 Registrar un gasto', action: () => showView('ingesta') },
-        { label: '📂 Ver documentos', action: () => showView('documentos') },
-        { label: '📊 Ver dashboard', action: () => showView('dashboard') },
-        { label: '⚙️ Configuración', action: () => showView('config') }
-      ]
-    );
+function updateSidebarEmpresa() {
+  if (state.empresa) {
+    document.getElementById('sidebarEmpName').textContent = state.empresa.razon_social;
+    document.getElementById('sidebarEmpRut').textContent = state.empresa.rut||'—';
   }
 }
 
-function agentStep(step) {
-  if (step === 'ask_razon_social') {
-    addAgentMsg(
-      '¿Cuál es la <strong>razón social</strong> de tu empresa? (nombre legal completo)',
-      null,
-      {
-        placeholder: 'Ej: Comercial Los Andes SpA',
-        onSubmit: (val) => { onboardingData.razon_social = val; addUserMsg(val); agentStep('ask_rut'); }
-      }
-    );
-  } else if (step === 'ask_rut') {
-    addAgentMsg(
-      `Perfecto, <strong>${onboardingData.razon_social}</strong>.<br><br>¿Cuál es el RUT de la empresa?`,
-      null,
-      {
-        placeholder: 'Ej: 76.123.456-7',
-        onSubmit: (val) => { onboardingData.rut = val; addUserMsg(val); agentStep('ask_giro'); }
-      }
-    );
-  } else if (step === 'ask_giro') {
-    addAgentMsg(
-      '¿Cuál es el giro o actividad principal de la empresa?',
-      [
-        { label: 'Comercio', action: () => { onboardingData.giro = 'Comercio'; addUserMsg('Comercio'); agentStep('confirm_empresa'); } },
-        { label: 'Servicios', action: () => { onboardingData.giro = 'Servicios'; addUserMsg('Servicios'); agentStep('confirm_empresa'); } },
-        { label: 'Manufactura', action: () => { onboardingData.giro = 'Manufactura'; addUserMsg('Manufactura'); agentStep('confirm_empresa'); } },
-        { label: 'Otro', action: () => { onboardingData.giro = 'Otro'; addUserMsg('Otro'); agentStep('confirm_empresa'); } }
-      ]
-    );
-  } else if (step === 'confirm_empresa') {
-    addAgentMsg(
-      `Voy a crear la empresa con estos datos:<br><br>` +
-      `<strong>Razón Social:</strong> ${onboardingData.razon_social}<br>` +
-      `<strong>RUT:</strong> ${onboardingData.rut}<br>` +
-      `<strong>Giro:</strong> ${onboardingData.giro}<br><br>¿Todo correcto?`,
-      [
-        { label: '✅ Crear empresa', action: () => agentCreateEmpresa() },
-        { label: '✏️ Corregir datos', action: () => agentStep('ask_razon_social') }
-      ]
-    );
-  } else if (step === 'empresa_created') {
-    addAgentMsg(
-      `¡Empresa creada exitosamente! 🎉<br><br>` +
-      `Ahora voy a crear algunas <strong>categorías contables</strong> básicas para que puedas empezar a clasificar gastos.`,
-      [
-        { label: '✅ Crear categorías básicas', action: () => agentCreateDefaultCategories() },
-        { label: '⏩ Las crearé yo mismo', action: () => agentStep('ready') }
-      ]
-    );
-  } else if (step === 'categories_created') {
-    addAgentMsg(
-      `¡Listo! Todo configurado. Ahora puedes:<br><br>` +
-      `• Subir tu primer gasto y el agente identificará la categoría<br>` +
-      `• Aprobar o corregir la sugerencia de la IA<br>` +
-      `• Revisar todos los documentos procesados`,
-      [
-        { label: '📄 Subir primer gasto', action: () => showView('ingesta') },
-        { label: '📊 Ver dashboard', action: () => showView('dashboard') }
-      ]
-    );
-  } else if (step === 'ready') {
-    addAgentMsg(
-      `¡Todo listo! Puedes empezar a usar el sistema.<br><br>Cuando quieras registrar un gasto, ve a <strong>Nuevo Gasto</strong>.`,
-      [
-        { label: '📄 Nuevo Gasto', action: () => showView('ingesta') },
-        { label: '⚙️ Configurar categorías', action: () => showView('config') }
-      ]
-    );
-  }
+// ── Navegación ────────────────────────────────────────────────────────────────
+function showSection(s) {
+  state.currentSection = s;
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.s===s));
+  const titles = {
+    dashboard:['Dashboard','Resumen de actividad'],
+    'nuevo-gasto':['Nuevo Gasto','Procesa un documento con el pipeline IA'],
+    documentos:['Documentos','Gestión y revisión'],
+    analitica:['Analítica','Análisis de gastos'],
+    recomendaciones:['Recomendaciones','Optimización de gastos'],
+    admin:['Administración','Empresas y categorías'],
+  };
+  const [t,sub] = titles[s]||['',''];
+  document.getElementById('topbarTitle').textContent = t;
+  document.getElementById('topbarSub').textContent = sub;
+  const fns = {dashboard:renderDashboard,'nuevo-gasto':renderNuevoGasto,documentos:renderDocumentos,analitica:renderAnalitica,recomendaciones:renderRecomendaciones,admin:renderAdmin};
+  if (fns[s]) fns[s]();
 }
 
-async function agentCreateEmpresa() {
-  showTyping();
-  try {
-    const empresa = await api('/api/empresas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ razon_social: onboardingData.razon_social, rut: onboardingData.rut, giro: onboardingData.giro })
-    });
-    await setEmpresa(empresa);
-    hideTyping();
-    agentStep('empresa_created');
-  } catch (e) {
-    hideTyping();
-    addAgentMsg('Hubo un error al crear la empresa. ¿Intentamos de nuevo?', [
-      { label: '🔄 Reintentar', action: () => agentCreateEmpresa() }
-    ]);
-  }
+// ── Onboarding ────────────────────────────────────────────────────────────────
+function showOnboarding() {
+  document.getElementById('mainContent').innerHTML = `
+    <div class="onboarding">
+      <div class="ob-header">
+        <div class="ob-icon">📒</div>
+        <div class="ob-title">Bienvenido a Ledger AI</div>
+        <div class="ob-sub">Tu asistente de contabilidad con IA local.<br>Configura tu empresa en 3 pasos.</div>
+      </div>
+      <div class="ob-body">
+        <div class="ob-dots"><div class="ob-dot active" id="od0"></div><div class="ob-dot" id="od1"></div><div class="ob-dot" id="od2"></div></div>
+        <div class="ob-step active" id="os0">
+          <div class="ob-counter">Paso 1 de 3 — Datos de la empresa</div>
+          <div class="form-group"><label class="form-label">Razón Social *</label><input class="form-input" id="ob_razon" placeholder="Ej: Mi Empresa SpA" autofocus/></div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">RUT / RUC</label><input class="form-input" id="ob_rut" placeholder="77.194.706-9"/></div>
+            <div class="form-group"><label class="form-label">País</label>
+              <select class="form-select" id="ob_pais"><option value="Chile">Chile</option><option value="Peru">Perú</option><option value="Mexico">México</option><option value="Colombia">Colombia</option></select>
+            </div>
+          </div>
+          <div class="form-group"><label class="form-label">Giro / Actividad</label><input class="form-input" id="ob_giro" placeholder="Ej: Venta de Equipos"/></div>
+          <div class="form-group"><label class="form-label">Moneda Base</label>
+            <select class="form-select" id="ob_moneda"><option value="CLP">CLP — Peso Chileno</option><option value="PEN">PEN — Sol Peruano</option><option value="MXN">MXN — Peso Mexicano</option><option value="USD">USD — Dólar</option></select>
+          </div>
+          <button class="btn btn-primary btn-lg" style="width:100%" onclick="obNext(0)">Continuar →</button>
+        </div>
+        <div class="ob-step" id="os1">
+          <div class="ob-counter">Paso 2 de 3 — Categorías contables</div>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">El agente usará estas categorías para clasificar tus gastos automáticamente.</p>
+          <div id="ob_cats_list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:7px;margin-bottom:14px">
+            <input class="form-input" id="ob_new_cat" placeholder="Nueva categoría..." style="flex:1"/>
+            <button class="btn btn-secondary btn-sm" onclick="obAddCat()">+ Agregar</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary" onclick="obBack(1)">← Atrás</button>
+            <button class="btn btn-primary btn-lg" style="flex:1" onclick="obNext(1)">Continuar →</button>
+          </div>
+        </div>
+        <div class="ob-step" id="os2">
+          <div style="text-align:center;padding:16px 0">
+            <div style="font-size:52px;margin-bottom:14px">🎉</div>
+            <div style="font-size:17px;font-weight:800;margin-bottom:6px" id="ob_done_name">¡Listo!</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:22px">Ya puedes subir tu primer documento y el agente lo procesará automáticamente.</div>
+            <button class="btn btn-primary btn-lg" onclick="obFinish()">🚀 Empezar a usar Ledger AI</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  window._obCats = ['Operaciones','Marketing','Sueldos','Tecnología','Impuestos','Transporte','Alimentación'];
+  renderObCats();
 }
 
-async function agentCreateDefaultCategories() {
-  showTyping();
-  const defaults = [
-    { nombre: 'Operaciones', tipo: 'gasto' },
-    { nombre: 'Marketing y Publicidad', tipo: 'gasto' },
-    { nombre: 'Sueldos y RRHH', tipo: 'gasto' },
-    { nombre: 'Tecnología', tipo: 'gasto' },
-    { nombre: 'Arriendo y Servicios Básicos', tipo: 'gasto' },
-    { nombre: 'Impuestos y Contabilidad', tipo: 'gasto' },
-    { nombre: 'Transporte y Logística', tipo: 'gasto' },
-    { nombre: 'Otros Gastos', tipo: 'gasto' }
-  ];
-  for (const cat of defaults) {
+function renderObCats() {
+  const el = document.getElementById('ob_cats_list'); if (!el) return;
+  el.innerHTML = window._obCats.map((c,i)=>`
+    <div style="display:flex;align-items:center;gap:7px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px">
+      <span style="flex:1;font-size:12px">${c}</span>
+      <button onclick="window._obCats.splice(${i},1);renderObCats()" style="background:none;color:var(--text3);font-size:14px;cursor:pointer">✕</button>
+    </div>`).join('');
+}
+function obAddCat() { const v=document.getElementById('ob_new_cat').value.trim(); if(v){window._obCats.push(v);document.getElementById('ob_new_cat').value='';renderObCats();} }
+function obBack(step) { document.getElementById(`os${step}`).classList.remove('active'); document.getElementById(`os${step-1}`).classList.add('active'); document.getElementById(`od${step}`).classList.remove('active'); document.getElementById(`od${step-1}`).classList.add('active'); }
+
+async function obNext(step) {
+  if (step===0) {
+    const razon = document.getElementById('ob_razon').value.trim();
+    if (!razon) { showToast('Ingresa la razón social','error'); return; }
     try {
-      await api('/api/empresas/' + state.empresa.id + '/categorias', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cat)
-      });
-    } catch (e) {}
+      const r = await fetch(`${API}/api/empresas`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({razon_social:razon,rut:document.getElementById('ob_rut').value.trim()||'00.000.000-0',pais:document.getElementById('ob_pais').value,giro:document.getElementById('ob_giro').value.trim(),moneda_base:document.getElementById('ob_moneda').value})});
+      const d = await r.json();
+      await loadEmpresas();
+      state.empresa = state.empresas.find(e=>e.id===d.id)||state.empresas[0];
+      updateSidebarEmpresa();
+    } catch(e) { showToast('Error: '+e.message,'error'); return; }
   }
+  if (step===1) {
+    for (const cat of window._obCats) {
+      try { await fetch(`${API}/api/empresas/${state.empresa.id}/categorias`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre:cat})}); } catch(e) {}
+    }
+    await loadCategorias();
+    document.getElementById('ob_done_name').textContent = `¡${state.empresa.razon_social} está lista!`;
+  }
+  document.getElementById(`os${step}`).classList.remove('active');
+  document.getElementById(`os${step+1}`).classList.add('active');
+  document.getElementById(`od${step}`).classList.replace('active','done');
+  document.getElementById(`od${step+1}`).classList.add('active');
+}
+function obFinish() { checkOllamaStatus(); showSection('nuevo-gasto'); }
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function renderDashboard() {
+  if (!state.empresa) { showOnboarding(); return; }
+  document.getElementById('mainContent').innerHTML = `
+    <div class="kpi-grid" id="kpiGrid">${[1,2,3,4].map(()=>`<div class="kpi-card"><div class="kpi-label">Cargando...</div><div class="kpi-value">—</div></div>`).join('')}</div>
+    <div class="charts-grid">
+      <div class="chart-card"><div class="card-title">🥧 Gastos por Categoría</div><canvas id="chartCat"></canvas></div>
+      <div class="chart-card"><div class="card-title">📈 Tendencia Mensual</div><canvas id="chartTrend"></canvas></div>
+    </div>
+    <div style="margin-top:18px"><div class="card"><div class="card-title">⚡ Documentos Recientes</div><div id="recentDocs">Cargando...</div></div></div>
+  `;
   try {
-    const data = await api('/api/empresas/' + state.empresa.id + '/categorias');
-    state.categorias = data.categorias || [];
-  } catch (e) {}
-  hideTyping();
-  agentStep('categories_created');
-}
-
-function addAgentMsg(html, actions = null, inputOpts = null) {
-  const msgs = document.getElementById('chat-messages');
-  const div = document.createElement('div');
-  div.className = 'msg agent';
-  div.innerHTML = `<div class="msg-avatar">🤖</div><div><div class="msg-bubble">${html}</div></div>`;
-  msgs.appendChild(div);
-
-  const wrapper = div.querySelector('div:last-child');
-
-  if (actions) {
-    const actDiv = document.createElement('div');
-    actDiv.className = 'msg-actions';
-    actions.forEach(a => {
-      const btn = document.createElement('button');
-      btn.className = 'msg-btn';
-      btn.innerHTML = a.label;
-      btn.addEventListener('click', () => {
-        actDiv.querySelectorAll('.msg-btn').forEach(b => b.disabled = true);
-        a.action();
-      });
-      actDiv.appendChild(btn);
-    });
-    wrapper.appendChild(actDiv);
-  }
-
-  if (inputOpts) {
-    const formDiv = document.createElement('div');
-    formDiv.className = 'msg-form';
-    const inp = document.createElement('input');
-    inp.placeholder = inputOpts.placeholder || '';
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-primary btn-sm';
-    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Continuar';
-    const submit = () => {
-      const val = inp.value.trim();
-      if (!val) return;
-      btn.disabled = true; inp.disabled = true;
-      inputOpts.onSubmit(val);
-    };
-    btn.addEventListener('click', submit);
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
-    formDiv.appendChild(inp);
-    formDiv.appendChild(btn);
-    wrapper.appendChild(formDiv);
-    setTimeout(() => inp.focus(), 100);
-  }
-
-  msgs.scrollTop = msgs.scrollHeight;
-}
-
-function addUserMsg(text) {
-  const msgs = document.getElementById('chat-messages');
-  const div = document.createElement('div');
-  div.className = 'msg user';
-  div.innerHTML = `<div class="msg-avatar"><i class="fa-solid fa-user"></i></div><div class="msg-bubble">${text}</div>`;
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
-}
-
-let typingEl = null;
-function showTyping() {
-  const msgs = document.getElementById('chat-messages');
-  typingEl = document.createElement('div');
-  typingEl.className = 'msg agent';
-  typingEl.innerHTML = `<div class="msg-avatar">🤖</div><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>`;
-  msgs.appendChild(typingEl);
-  msgs.scrollTop = msgs.scrollHeight;
-}
-function hideTyping() { if (typingEl) { typingEl.remove(); typingEl = null; } }
-
-async function sendChatMessage() {
-  const input = document.getElementById('chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  addUserMsg(text);
-  showTyping();
-  await new Promise(r => setTimeout(r, 700));
-  hideTyping();
-  const lower = text.toLowerCase();
-  if (lower.includes('gasto') || lower.includes('factura') || lower.includes('boleta') || lower.includes('subir')) {
-    addAgentMsg('Para registrar un gasto, ve a <strong>Nuevo Gasto</strong> y sube el documento.', [
-      { label: '📄 Ir a Nuevo Gasto', action: () => showView('ingesta') }
+    const [dash,cats,trend] = await Promise.all([
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/dashboard`).then(r=>r.json()),
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/categorias`).then(r=>r.json()),
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/tendencias`).then(r=>r.json()),
     ]);
-  } else if (lower.includes('empresa') || lower.includes('crear')) {
-    addAgentMsg('Puedes crear o gestionar empresas en <strong>Configuración</strong>.', [
-      { label: '⚙️ Ir a Configuración', action: () => showView('config') }
-    ]);
-  } else if (lower.includes('documento') || lower.includes('revisar') || lower.includes('pendiente')) {
-    addAgentMsg('Puedes revisar todos los documentos procesados en <strong>Documentos</strong>.', [
-      { label: '📂 Ver Documentos', action: () => showView('documentos') }
-    ]);
-  } else if (lower.includes('dashboard') || lower.includes('resumen') || lower.includes('gráfico') || lower.includes('analítica')) {
-    showView('dashboard');
-    addAgentMsg('Aquí tienes el dashboard con el resumen financiero.');
+    renderKPIs(dash); renderCatChart(cats); renderTrendChart(trend); renderRecentDocs();
+  } catch(e) { console.error(e); }
+}
+
+function renderKPIs(d) {
+  const fmt = n => n ? '$'+Number(n).toLocaleString('es-CL') : '$0';
+  document.getElementById('kpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Total Gastos (30d)</div><div class="kpi-value" style="color:var(--accent2)">${fmt(d.total_gastos||0)}</div><div class="kpi-sub">${d.total_documentos||0} documentos</div></div>
+    <div class="kpi-card"><div class="kpi-label">Pendientes</div><div class="kpi-value" style="color:var(--yellow)">${d.pendientes_revision||0}</div><div class="kpi-sub">Requieren revisión</div></div>
+    <div class="kpi-card"><div class="kpi-label">Categorías</div><div class="kpi-value" style="color:var(--green)">${state.categorias.length}</div><div class="kpi-sub">Configuradas</div></div>
+    <div class="kpi-card"><div class="kpi-label">Alertas</div><div class="kpi-value" style="color:var(--red)">${d.total_alertas||0}</div><div class="kpi-sub">Anomalías</div></div>
+  `;
+  const pb = document.getElementById('pendingBadge');
+  pb.textContent = d.pendientes_revision||0;
+  pb.style.display = (d.pendientes_revision||0)>0?'':'none';
+}
+
+function renderCatChart(d) {
+  const ctx = document.getElementById('chartCat'); if (!ctx) return;
+  const items = d.por_categoria||[];
+  if (state.charts.cat) state.charts.cat.destroy();
+  state.charts.cat = new Chart(ctx, {type:'doughnut',data:{labels:items.map(i=>i.categoria||'Sin cat'),datasets:[{data:items.map(i=>i.total||0),backgroundColor:['#6c63ff','#22c55e','#f59e0b','#3b82f6','#ef4444','#8b5cf6','#06b6d4','#f97316'],borderWidth:0}]},options:{plugins:{legend:{labels:{color:'#94a3b8',font:{size:10}}}},cutout:'65%'}});
+}
+
+function renderTrendChart(d) {
+  const ctx = document.getElementById('chartTrend'); if (!ctx) return;
+  const items = d.tendencia_mensual||[];
+  if (state.charts.trend) state.charts.trend.destroy();
+  state.charts.trend = new Chart(ctx, {type:'line',data:{labels:items.map(i=>i.mes||''),datasets:[{label:'Gastos',data:items.map(i=>i.total||0),borderColor:'#6c63ff',backgroundColor:'rgba(108,99,255,.1)',fill:true,tension:0.4,pointBackgroundColor:'#6c63ff'}]},options:{scales:{x:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e2535'}},y:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e2535'}}},plugins:{legend:{display:false}}}});
+}
+
+async function renderRecentDocs() {
+  const el = document.getElementById('recentDocs'); if (!el||!state.empresa) return;
+  try {
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos?limit=5`);
+    const d = await r.json(); const docs = d.documentos||[];
+    if (!docs.length) { el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--text3)">No hay documentos. <a href="#" onclick="showSection('nuevo-gasto')" style="color:var(--accent2)">Sube tu primer gasto →</a></div>`; return; }
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">${['Proveedor','Fecha','Monto','Categoría','Estado'].map(h=>`<th style="text-align:left;padding:7px;font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase">${h}</th>`).join('')}</tr></thead><tbody>${docs.map(doc=>`
+      <tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openDocModal('${doc.id}')">
+        <td style="padding:9px 7px;font-size:12px">${doc.proveedor||'—'}</td>
+        <td style="padding:9px 7px;font-size:11px;color:var(--text2)">${doc.fecha_emision?doc.fecha_emision.split('T')[0]:'—'}</td>
+        <td style="padding:9px 7px;font-size:12px;font-weight:700;color:var(--accent2)">${doc.monto_total?'$'+Number(doc.monto_total).toLocaleString('es-CL'):'—'}</td>
+        <td style="padding:9px 7px"><span class="doc-cat">${doc.categoria_nombre||'Sin categoría'}</span></td>
+        <td style="padding:9px 7px"><span class="badge badge-${doc.estado_revision||'pendiente'}">${statusLabel(doc.estado_revision)}</span></td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch(e) { el.innerHTML=`<div style="color:var(--text3);font-size:12px">Error cargando documentos</div>`; }
+}
+
+// ── Nuevo Gasto — Pipeline Agéntico ──────────────────────────────────────────
+const STEPS = [
+  {id:'ocr',      icon:'🔍', name:'OCR — Extracción de texto'},
+  {id:'vision',   icon:'👁',  name:'Visión IA — Análisis visual'},
+  {id:'extraction',icon:'🧠', name:'Extracción de campos'},
+  {id:'classification',icon:'🏷',name:'Clasificación del gasto'},
+  {id:'audit',    icon:'🛡',  name:'Auditoría y validación'},
+  {id:'save',     icon:'💾', name:'Guardando documento'},
+];
+
+function renderNuevoGasto() {
+  document.getElementById('mainContent').innerHTML = `
+    <div style="max-width:780px;margin:0 auto">
+      <div class="card" id="uploadCard">
+        <div class="card-title">📤 Subir Documento</div>
+        <div class="upload-zone" id="uploadZone" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+          <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.webp" onchange="onFileSelect(event)"/>
+          <div class="upload-icon">☁️</div>
+          <div class="upload-title">Arrastra tu documento aquí</div>
+          <div class="upload-sub">Facturas, boletas, recibos — PDF, JPG o PNG</div>
+          <div style="margin-top:14px">
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click();event.stopPropagation()">📂 Seleccionar archivo</button>
+          </div>
+        </div>
+      </div>
+      <div class="pipeline-wrap" id="pipelineWrap" style="display:none">
+        <div class="pipeline-head">
+          <div class="ph-icon">🤖</div>
+          <div class="ph-info">
+            <div class="ph-title">Pipeline de Procesamiento IA</div>
+            <div class="ph-file" id="pipelineFile"></div>
+          </div>
+          <div class="ph-status" id="pipelineStatus">Iniciando...</div>
+        </div>
+        <div class="pipeline-steps" id="pipelineSteps"></div>
+      </div>
+      <div class="result-wrap" id="resultWrap" style="display:none">
+        <div class="result-head">
+          <span style="font-size:22px">✅</span>
+          <div><div style="font-size:14px;font-weight:700">Documento Procesado</div><div style="font-size:11px;color:var(--text2)" id="resultSub">Revisa los datos extraídos</div></div>
+        </div>
+        <div class="result-body" id="resultBody"></div>
+        <div class="result-cat" id="resultCat"></div>
+        <div class="result-actions">
+          <div class="cat-row">
+            <label>Categoría:</label>
+            <select id="catSelect" class="form-select"></select>
+          </div>
+          <button class="btn btn-success btn-lg" onclick="acceptDocument()">✓ Aceptar y Guardar</button>
+          <button class="btn btn-secondary" onclick="resetUpload()">↩ Procesar otro</button>
+          <button class="btn btn-secondary btn-sm" id="btnVerDoc" onclick="openDocModal(state.processingDoc&&state.processingDoc.doc_id)">👁 Ver doc</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function initPipelineUI(filename) {
+  document.getElementById('pipelineWrap').style.display='';
+  document.getElementById('pipelineFile').textContent = filename;
+  document.getElementById('pipelineStatus').textContent = 'Procesando...';
+  document.getElementById('pipelineStatus').className = 'ph-status';
+  document.getElementById('resultWrap').style.display='none';
+  const stepsEl = document.getElementById('pipelineSteps');
+  stepsEl.innerHTML = STEPS.map((s,i)=>`
+    <div class="p-step" id="pstep_${s.id}">
+      <div class="p-step-left">
+        <div class="p-step-num waiting" id="pnum_${s.id}">${s.icon}</div>
+        ${i<STEPS.length-1?`<div class="p-step-line" id="pline_${s.id}"></div>`:''}
+      </div>
+      <div class="p-step-right">
+        <div class="p-step-name">${s.name}</div>
+        <div class="p-step-msg" id="pmsg_${s.id}">Esperando...</div>
+        <div id="pdata_${s.id}"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateStep(stepId, status, data) {
+  const num = document.getElementById(`pnum_${stepId}`);
+  const msg = document.getElementById(`pmsg_${stepId}`);
+  const dataEl = document.getElementById(`pdata_${stepId}`);
+  if (!num) return;
+  const step = STEPS.find(s=>s.id===stepId);
+  num.className = `p-step-num ${status}`;
+  if (status==='running') {
+    num.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>`;
   } else {
-    addAgentMsg(
-      'Puedo ayudarte con:<br><br>' +
-      '• Registrar gastos y documentos<br>' +
-      '• Revisar documentos procesados<br>' +
-      '• Ver el dashboard financiero<br>' +
-      '• Configurar empresa y categorías',
-      [
-        { label: '📄 Nuevo Gasto', action: () => showView('ingesta') },
-        { label: '📂 Documentos', action: () => showView('documentos') },
-        { label: '📊 Dashboard', action: () => showView('dashboard') }
-      ]
-    );
+    num.textContent = step?.icon || '•';
   }
+  msg.className = `p-step-msg ${status}`;
+  const statusMsgs = {waiting:'Esperando...',running:'Procesando...',done:'Completado',error:'Error',skip:'Omitido'};
+  msg.textContent = data?.message || statusMsgs[status] || '';
+
+  // Mark previous line as done
+  if (status==='done'||status==='running') {
+    const prevIdx = STEPS.findIndex(s=>s.id===stepId);
+    if (prevIdx>0) {
+      const prevLine = document.getElementById(`pline_${STEPS[prevIdx-1].id}`);
+      if (prevLine) prevLine.classList.add('done');
+    }
+  }
+
+  let extra = '';
+  if ((status==='done'||status==='info') && data) {
+    if (data.fields && Object.keys(data.fields).filter(k=>data.fields[k]).length>0) {
+      const items = Object.entries(data.fields).filter(([k,v])=>v!=null&&v!='').slice(0,8)
+        .map(([k,v])=>`<div class="p-field"><span class="pk">${fieldLabel(k)}:</span><span class="pv">${v}</span></div>`).join('');
+      if (items) extra += `<div class="p-step-fields">${items}</div>`;
+    }
+    if (data.preview) {
+      extra += `<div class="p-step-preview"><pre>${escHtml(data.preview.substring(0,400))}</pre></div>`;
+    }
+    if (data.categoria_sugerida) {
+      const conf = Math.round((data.confianza||0)*100);
+      const cls = conf>=70?'high':conf>=40?'med':'low';
+      extra += `<div class="p-cat-suggest">
+        <div class="p-cat-name">🏷 ${data.categoria_sugerida}</div>
+        <div class="p-cat-reason">${data.razon||''}</div>
+        <div class="p-conf-bar"><div class="p-conf-fill ${cls}" style="width:${conf}%"></div></div>
+        <div class="p-conf-label">Confianza: ${conf}%</div>
+      </div>`;
+    }
+    if (data.excepciones && data.excepciones.length>0) {
+      extra += `<div class="p-step-preview" style="border-color:var(--yellow)">
+        ${data.excepciones.map(e=>`<div>⚠️ ${e.mensaje||e}</div>`).join('')}
+      </div>`;
+    }
+  }
+  dataEl.innerHTML = extra;
+  document.getElementById(`pstep_${stepId}`)?.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
-// ═══════════════════════════════════════════════════════════════
-// INGESTA
-// ═══════════════════════════════════════════════════════════════
-function handleFileDrop(e) {
-  e.preventDefault();
-  document.getElementById('upload-zone').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) processFile(file);
-}
-function handleFileSelect(e) {
-  const file = e.target.files[0];
-  if (file) processFile(file);
+function renderResultPanel(data) {
+  const fields = data.fields||{};
+  const cls = data.classification||{};
+  const fmt = n => n ? '$'+Number(n).toLocaleString('es-CL') : '—';
+  document.getElementById('resultWrap').style.display='';
+  document.getElementById('resultSub').textContent = `${data.ocr_words||0} palabras extraídas · ${data.models_used?.text||'regex'}`;
+  document.getElementById('resultBody').innerHTML = `
+    <div class="r-field"><div class="r-label">Proveedor</div><div class="r-value ${!fields.proveedor?'empty':''}">${fields.proveedor||'No detectado'}</div></div>
+    <div class="r-field"><div class="r-label">RUT / RUC</div><div class="r-value ${!fields.rut_proveedor?'empty':''}">${fields.rut_proveedor||'No detectado'}</div></div>
+    <div class="r-field"><div class="r-label">Fecha Emisión</div><div class="r-value ${!fields.fecha_emision?'empty':''}">${fields.fecha_emision||'No detectado'}</div></div>
+    <div class="r-field"><div class="r-label">Folio / N°</div><div class="r-value ${!fields.folio?'empty':''}">${fields.folio||'No detectado'}</div></div>
+    <div class="r-field"><div class="r-label">Monto Neto</div><div class="r-value">${fmt(fields.monto_neto)}</div></div>
+    <div class="r-field"><div class="r-label">IVA</div><div class="r-value">${fmt(fields.iva)}</div></div>
+    <div class="r-field"><div class="r-label">Total</div><div class="r-value" style="color:var(--accent2);font-size:17px">${fmt(fields.monto_total)}</div></div>
+    <div class="r-field"><div class="r-label">Tipo</div><div class="r-value">${fields.tipo_documento||'—'}</div></div>
+  `;
+  const conf = Math.round((cls.confianza||0)*100);
+  const confCls = conf>=70?'high':conf>=40?'med':'low';
+  document.getElementById('resultCat').innerHTML = `
+    <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Categoría sugerida por IA</div>
+    <div style="display:flex;align-items:center;gap:12px;background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.2);border-radius:var(--radius-sm);padding:12px">
+      <span style="font-size:22px">🏷</span>
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:800">${cls.categoria_sugerida||'Sin categoría'}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${cls.razon||'Basado en el contenido'}</div>
+        <div class="p-conf-bar" style="margin-top:6px"><div class="p-conf-fill ${confCls}" style="width:${conf}%"></div></div>
+        <div class="p-conf-label">Confianza: ${conf}%</div>
+      </div>
+    </div>
+  `;
+  const sel = document.getElementById('catSelect');
+  sel.innerHTML = `<option value="">Sin categoría</option>` +
+    state.categorias.map(c=>`<option value="${c.id}" ${c.nombre===cls.categoria_sugerida?'selected':''}>${c.nombre}</option>`).join('');
 }
 
 async function processFile(file) {
-  if (!state.empresa) {
-    toast('Primero crea una empresa en Configuración o con el Asistente', 'error');
-    showView('agente');
+  if (!state.empresa) { showToast('Selecciona una empresa primero','error'); return; }
+  initPipelineUI(file.name);
+
+  // Upload file first
+  const formData = new FormData();
+  formData.append('file', file);
+  let uploadData;
+  try {
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/upload`, {method:'POST',body:formData});
+    if (!r.ok) throw new Error(await r.text());
+    uploadData = await r.json();
+  } catch(e) {
+    showToast('Error subiendo archivo: '+e.message,'error');
+    document.getElementById('pipelineStatus').textContent='Error al subir';
+    document.getElementById('pipelineStatus').className='ph-status error';
     return;
   }
-  state.processedDoc = null;
-  const panel = document.getElementById('ai-panel');
-  const indicator = document.getElementById('processing-indicator');
-  const progress = document.getElementById('processing-progress');
-  const msg = document.getElementById('processing-msg');
-  panel.classList.remove('visible');
-  document.getElementById('manual-category-panel').style.display = 'none';
-  indicator.style.display = 'block';
-  progress.style.width = '0%';
 
-  let pct = 0;
-  const iv = setInterval(() => { pct = Math.min(pct + Math.random() * 12, 85); progress.style.width = pct + '%'; }, 400);
-  const steps = ['Extrayendo texto del documento...', 'Identificando campos clave...', 'Clasificando con IA...'];
-  let si = 0;
-  const sv = setInterval(() => { if (si < steps.length) msg.textContent = steps[si++]; }, 1800);
+  // Connect SSE stream for pipeline
+  const params = new URLSearchParams({file_path:uploadData.file_path, original_filename:uploadData.original_filename||file.name});
+  const evtSource = new EventSource(`${API}/api/empresas/${state.empresa.id}/documentos/process-stream?${params}`);
+  let finalData = null;
 
+  evtSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.step==='complete' && data.status==='done') {
+        finalData = data;
+        state.processingDoc = data;
+        evtSource.close();
+        document.getElementById('pipelineStatus').textContent='✅ Completado';
+        document.getElementById('pipelineStatus').className='ph-status done';
+        renderResultPanel(data);
+        showToast('Documento procesado exitosamente','success');
+        return;
+      }
+      if (data.step==='error') {
+        evtSource.close();
+        document.getElementById('pipelineStatus').textContent='❌ Error';
+        document.getElementById('pipelineStatus').className='ph-status error';
+        showToast(data.message||'Error en el pipeline','error');
+        return;
+      }
+      if (STEPS.find(s=>s.id===data.step)) updateStep(data.step, data.status, data);
+    } catch(e) { console.error('SSE parse error:',e); }
+  };
+  evtSource.onerror = () => { if (!finalData) { evtSource.close(); showToast('Error de conexión con el pipeline','error'); } };
+}
+
+async function acceptDocument() {
+  if (!state.processingDoc) return;
+  const catId = document.getElementById('catSelect')?.value;
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    const result = await api('/api/empresas/' + state.empresa.id + '/documentos/upload', { method: 'POST', body: formData });
-    clearInterval(iv); clearInterval(sv);
-    progress.style.width = '100%';
-    msg.textContent = '¡Procesado exitosamente!';
-    await new Promise(r => setTimeout(r, 600));
-    indicator.style.display = 'none';
-    state.processedDoc = result;
-    showAIPanel(result);
-    updateBadge();
-  } catch (e) {
-    clearInterval(iv); clearInterval(sv);
-    indicator.style.display = 'none';
-    toast('Error procesando el documento: ' + e.message, 'error');
-  }
+    if (state.processingDoc.doc_id) {
+      await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${state.processingDoc.doc_id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({categoria_id:catId||null,estado_revision:'REVISADO'})});
+    }
+    showToast('Documento guardado y aprobado','success');
+    resetUpload();
+    showSection('documentos');
+  } catch(e) { showToast('Error: '+e.message,'error'); }
 }
 
-function showAIPanel(doc) {
-  document.getElementById('ai-panel').classList.add('visible');
-  const fields = doc.campos_extraidos || {};
-
-  // Campos extraídos
-  document.getElementById('extracted-fields-container').innerHTML = `
-    <div class="extracted-fields">
-      ${fld('Proveedor', fields.proveedor || doc.proveedor)}
-      ${fld('RUT Proveedor', fields.rut_proveedor || doc.rut_proveedor)}
-      ${fld('Fecha', fields.fecha_emision || doc.fecha_emision)}
-      ${fld('Folio', fields.folio || doc.folio)}
-      ${fld('Monto Neto', fmtMonto(fields.monto_neto || doc.monto_neto))}
-      ${fld('IVA', fmtMonto(fields.iva || doc.iva))}
-      ${fld('Total', fmtMonto(fields.monto_total || doc.monto_total))}
-      ${fld('Tipo Documento', fields.tipo_documento || doc.tipo_documento)}
-    </div>`;
-
-  // Sugerencia IA
-  const catNombre = doc.categoria_sugerida || doc.categoria_nombre || 'Sin categoría';
-  const confianza = Math.round((doc.confianza_clasificacion || 0.7) * 100);
-  const color = confianza >= 80 ? 'var(--success)' : confianza >= 60 ? 'var(--warning)' : 'var(--danger)';
-  document.getElementById('ai-suggestion-container').innerHTML = `
-    <div class="ai-suggestion">
-      <div class="ai-suggestion-label">Categoría sugerida por IA</div>
-      <div class="ai-suggestion-value">${catNombre}</div>
-      <div class="ai-suggestion-reason">${doc.razon_clasificacion || 'Basado en el contenido del documento'}</div>
-      <div class="ai-confidence">
-        <div class="confidence-bar"><div class="confidence-fill" style="width:${confianza}%;background:${color}"></div></div>
-        <span class="confidence-text">Confianza: ${confianza}%</span>
-      </div>
-    </div>`;
-
-  // Acciones
-  document.getElementById('ai-actions').innerHTML = '';
-  const actDiv = document.getElementById('ai-actions');
-  const btnAceptar = document.createElement('button');
-  btnAceptar.className = 'btn btn-success';
-  btnAceptar.innerHTML = '<i class="fa-solid fa-check"></i> Aceptar categoría';
-  btnAceptar.onclick = acceptCategory;
-  const btnCambiar = document.createElement('button');
-  btnCambiar.className = 'btn btn-outline';
-  btnCambiar.innerHTML = '<i class="fa-solid fa-tag"></i> Cambiar categoría';
-  btnCambiar.onclick = showManualCategory;
-  const btnVer = document.createElement('button');
-  btnVer.className = 'btn btn-outline';
-  btnVer.innerHTML = '<i class="fa-solid fa-eye"></i> Ver documento';
-  btnVer.onclick = () => openDocModal(state.processedDoc);
-  actDiv.appendChild(btnAceptar);
-  actDiv.appendChild(btnCambiar);
-  actDiv.appendChild(btnVer);
-
-  // Poblar select manual
-  const sel = document.getElementById('manual-category-select');
-  sel.innerHTML = '<option value="">Seleccionar categoría...</option>' +
-    state.categorias.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+function resetUpload() {
+  state.processingDoc=null;
+  document.getElementById('pipelineWrap').style.display='none';
+  document.getElementById('resultWrap').style.display='none';
+  const fi = document.getElementById('fileInput');
+  if (fi) fi.value='';
 }
 
-function fld(label, value) {
-  const empty = !value || value === 'null' || value === 'undefined' || value === 'None';
-  return `<div class="field-item"><div class="field-label">${label}</div><div class="field-value ${empty ? 'empty' : ''}">${empty ? 'No detectado' : value}</div></div>`;
-}
-function fmtMonto(v) {
-  if (!v || isNaN(Number(v))) return null;
-  return '$' + Number(v).toLocaleString('es-CL');
-}
+function onDragOver(e) { e.preventDefault(); document.getElementById('uploadZone').classList.add('dragover'); }
+function onDragLeave(e) { document.getElementById('uploadZone').classList.remove('dragover'); }
+function onDrop(e) { e.preventDefault(); document.getElementById('uploadZone').classList.remove('dragover'); const f=e.dataTransfer.files[0]; if(f) processFile(f); }
+function onFileSelect(e) { const f=e.target.files[0]; if(f) processFile(f); }
 
-async function acceptCategory() {
-  if (!state.processedDoc) return;
-  try {
-    await api('/api/empresas/' + state.empresa.id + '/documentos/' + state.processedDoc.id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estado_revision: 'aprobado' })
-    });
-    toast('Documento aprobado y guardado ✓', 'success');
-    resetIngesta();
-    updateBadge();
-  } catch (e) { toast('Error al aprobar: ' + e.message, 'error'); }
-}
-
-function showManualCategory() {
-  document.getElementById('manual-category-panel').style.display = 'block';
-}
-
-async function applyManualCategory() {
-  const catId = document.getElementById('manual-category-select').value;
-  if (!catId || !state.processedDoc) return;
-  try {
-    await api('/api/empresas/' + state.empresa.id + '/documentos/' + state.processedDoc.id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ categoria_id: catId, estado_revision: 'aprobado' })
-    });
-    toast('Categoría asignada y documento aprobado ✓', 'success');
-    resetIngesta();
-    updateBadge();
-  } catch (e) { toast('Error: ' + e.message, 'error'); }
-}
-
-function resetIngesta() {
-  state.processedDoc = null;
-  document.getElementById('ai-panel').classList.remove('visible');
-  document.getElementById('manual-category-panel').style.display = 'none';
-  document.getElementById('file-input').value = '';
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DOCUMENTOS
-// ═══════════════════════════════════════════════════════════════
-async function loadDocumentos() {
+// ── Documentos ────────────────────────────────────────────────────────────────
+async function renderDocumentos() {
   if (!state.empresa) return;
+  document.getElementById('mainContent').innerHTML = `
+    <div class="filters-bar">
+      <input placeholder="🔍 Buscar proveedor, folio, categoría..." id="docSearch" oninput="filterDocs()"/>
+      <div class="filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-f="all" onclick="setDocFilter('all')">Todos</div>
+        <div class="filter-tab" data-f="pendiente" onclick="setDocFilter('pendiente')">Pendientes</div>
+        <div class="filter-tab" data-f="revisado" onclick="setDocFilter('revisado')">Aprobados</div>
+        <div class="filter-tab" data-f="rechazado" onclick="setDocFilter('rechazado')">Rechazados</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="showSection('nuevo-gasto')">➕ Nuevo</button>
+    </div>
+    <div id="docGrid" class="doc-grid"><div style="grid-column:1/-1;text-align:center;padding:36px;color:var(--text3)"><div class="spinner" style="margin:0 auto 10px"></div>Cargando...</div></div>
+  `;
+  await loadDocumentos();
+}
+
+async function loadDocumentos() {
   try {
-    const data = await api('/api/empresas/' + state.empresa.id + '/documentos');
-    state.documentos = data.documentos || [];
-    renderDocGrid();
-  } catch (e) {}
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos?limit=200`);
+    const d = await r.json();
+    state.documentos = d.documentos||[];
+    renderDocGrid(state.documentos);
+  } catch(e) { document.getElementById('docGrid').innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:20px">Error cargando documentos</div>`; }
 }
 
-function filterDocs(filter, btn) {
-  state.docsFilter = filter;
-  document.querySelectorAll('.doc-filter-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  renderDocGrid();
+let _docFilter='all';
+function setDocFilter(f) { _docFilter=f; document.querySelectorAll('.filter-tab').forEach(el=>el.classList.toggle('active',el.dataset.f===f)); filterDocs(); }
+function filterDocs() {
+  const q=(document.getElementById('docSearch')?.value||'').toLowerCase();
+  let docs=state.documentos;
+  if (_docFilter!=='all') docs=docs.filter(d=>d.estado_revision===_docFilter);
+  if (q) docs=docs.filter(d=>(d.proveedor||'').toLowerCase().includes(q)||(d.folio||'').toLowerCase().includes(q)||(d.categoria_nombre||'').toLowerCase().includes(q));
+  renderDocGrid(docs);
 }
 
-function searchDocs(q) {
-  state.docsSearch = q.toLowerCase();
-  renderDocGrid();
-}
-
-function renderDocGrid() {
-  const grid = document.getElementById('doc-grid');
-  let docs = state.documentos;
-  if (state.docsFilter !== 'todos') docs = docs.filter(d => (d.estado_revision || 'pendiente') === state.docsFilter);
-  if (state.docsSearch) {
-    docs = docs.filter(d =>
-      (d.proveedor || '').toLowerCase().includes(state.docsSearch) ||
-      (d.folio || '').toLowerCase().includes(state.docsSearch) ||
-      (d.categoria_nombre || '').toLowerCase().includes(state.docsSearch)
-    );
-  }
+function renderDocGrid(docs) {
+  const el=document.getElementById('docGrid'); if (!el) return;
   if (!docs.length) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
-      <i class="fa-solid fa-folder-open"></i>
-      <h3>Sin documentos</h3>
-      <p>${state.docsFilter !== 'todos' ? 'No hay documentos con este filtro.' : 'Sube tu primer documento en "Nuevo Gasto".'}</p>
-    </div>`;
+    el.innerHTML=`<div style="grid-column:1/-1"><div class="empty-state"><div class="es-icon">📭</div><div class="es-title">Sin documentos</div><div class="es-sub">Sube tu primer documento para comenzar</div><button class="btn btn-primary" onclick="showSection('nuevo-gasto')">➕ Nuevo Gasto</button></div></div>`;
     return;
   }
-  const stMap = { pendiente: 'pendiente', aprobado: 'aprobado', rechazado: 'rechazado', procesando: 'procesando' };
-  const stLabel = { pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado', procesando: 'Procesando' };
-  const stIcon = { pendiente: 'fa-clock', aprobado: 'fa-check-circle', rechazado: 'fa-xmark-circle', procesando: 'fa-spinner fa-spin' };
-
-  grid.innerHTML = docs.map((doc, idx) => {
-    const ext = (doc.tipo_archivo || (doc.nombre_archivo || '').split('.').pop()).toLowerCase();
-    const isImg = ['jpg', 'jpeg', 'png', 'bmp', 'webp'].includes(ext);
-    const preview = isImg
-      ? `<img src="/api/documentos/${doc.id}/preview" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-file-image\'></i>'">`
-      : `<i class="fa-solid fa-file-pdf" style="color:var(--danger)"></i>`;
-    const st = doc.estado_revision || 'pendiente';
-    const total = doc.monto_total ? '$' + Number(doc.monto_total).toLocaleString('es-CL') : '—';
-    const fecha = (doc.fecha_emision || doc.fecha_subida || '').substring(0, 10);
-    return `<div class="doc-card" onclick='openDocModalById("${doc.id}")'>
-      <div class="doc-card-preview">${preview}<span class="doc-type-badge">${ext.toUpperCase()}</span></div>
-      <div class="doc-card-body">
-        <div class="doc-card-title">${doc.proveedor || doc.nombre_archivo || 'Sin proveedor'}</div>
-        <div class="doc-card-meta">${doc.categoria_nombre || 'Sin categoría'} · ${fecha}</div>
-        <div class="doc-card-footer">
-          <span class="doc-status ${stMap[st]}"><i class="fa-solid ${stIcon[st]}"></i> ${stLabel[st]}</span>
-          <span class="doc-amount">${total}</span>
-        </div>
+  el.innerHTML=docs.map(doc=>{
+    const ext=(doc.tipo_archivo||'pdf').toLowerCase();
+    const isImg=['jpg','jpeg','png','bmp','webp','tiff'].includes(ext);
+    return `<div class="doc-card" onclick="openDocModal('${doc.id}')">
+      <div class="doc-thumb">
+        ${isImg?`<img src="${API}/api/documentos/${doc.id}/preview" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" loading="lazy"/><div class="dt-icon" style="display:none">🖼</div>`:`<div class="dt-icon">📄</div>`}
+        <span class="doc-status badge badge-${doc.estado_revision||'pendiente'}">${statusLabel(doc.estado_revision)}</span>
+      </div>
+      <div class="doc-info">
+        <div class="doc-prov">${doc.proveedor||'Proveedor desconocido'}</div>
+        <div class="doc-meta">${doc.fecha_emision?doc.fecha_emision.split('T')[0]:'Sin fecha'} · ${doc.folio||'—'}</div>
+        ${doc.monto_total?`<div class="doc-amount">$${Number(doc.monto_total).toLocaleString('es-CL')}</div>`:''}
+        <span class="doc-cat">${doc.categoria_nombre||'Sin categoría'}</span>
       </div>
     </div>`;
   }).join('');
 }
 
-function openDocModalById(id) {
-  const doc = state.documentos.find(d => d.id === id);
-  if (doc) openDocModal(doc);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// MODAL DOCUMENTO
-// ═══════════════════════════════════════════════════════════════
-function openDocModal(doc) {
-  state.currentDoc = doc;
-  document.getElementById('doc-modal').classList.add('open');
-  document.getElementById('modal-title').textContent = doc.proveedor || doc.nombre_archivo || 'Documento';
-
-  // Preview — usar tipo_archivo del backend para determinar si es imagen
-  const preview = document.getElementById('modal-preview-area');
-  const ext = (doc.tipo_archivo || (doc.nombre_archivo || '').split('.').pop()).toLowerCase();
-  const isImgModal = ['jpg', 'jpeg', 'png', 'bmp', 'webp'].includes(ext);
-  if (isImgModal) {
-    preview.innerHTML = `<img src="/api/documentos/${doc.id}/preview"
-      onerror="this.outerHTML='<div class=\'no-preview\'><i class=\'fa-solid fa-image\'></i><p>Vista previa no disponible</p></div>'"
-      style="max-width:100%;max-height:480px;object-fit:contain;border-radius:8px;display:block;margin:auto">`;
-  } else if (ext === 'pdf') {
-    // Intentar cargar preview del PDF (thumbnail via pdf2image si está disponible en el servidor)
-    const testImg = new Image();
-    testImg.onload = () => {
-      preview.innerHTML = `<img src="/api/documentos/${doc.id}/preview"
-        style="max-width:100%;max-height:480px;object-fit:contain;border-radius:8px;display:block;margin:auto">`;
-    };
-    testImg.onerror = () => {
-      preview.innerHTML = `<div class="no-preview">
-        <i class="fa-solid fa-file-pdf" style="color:var(--danger);font-size:64px"></i>
-        <p style="margin-top:12px;font-size:14px;font-weight:600">${doc.nombre_archivo || 'Documento PDF'}</p>
-        <a href="/api/documentos/${doc.id}/download" target="_blank" class="btn btn-outline btn-sm" style="margin-top:12px;text-decoration:none">
-          <i class="fa-solid fa-download"></i> Descargar PDF
-        </a>
-      </div>`;
-    };
-    // Mostrar ícono mientras carga
-    preview.innerHTML = `<div class="no-preview">
-      <i class="fa-solid fa-spinner fa-spin" style="font-size:40px;color:var(--text-secondary)"></i>
-      <p style="margin-top:8px;font-size:13px">Cargando vista previa...</p>
-    </div>`;
-    testImg.src = `/api/documentos/${doc.id}/preview`;
-  } else {
-    preview.innerHTML = `<div class="no-preview">
-      <i class="fa-solid fa-file" style="color:var(--text-secondary);font-size:64px"></i>
-      <p style="margin-top:12px;font-size:14px">${doc.nombre_archivo || 'Documento'}</p>
-      <a href="/api/documentos/${doc.id}/download" target="_blank" class="btn btn-outline btn-sm" style="margin-top:12px;text-decoration:none">
-        <i class="fa-solid fa-download"></i> Descargar
-      </a>
-    </div>`;
-  }
-
-  // Detalles
-  const confianza = Math.round((doc.confianza_clasificacion || 0) * 100);
-  const catOptions = state.categorias.map(c =>
-    `<option value="${c.id}" ${c.id === doc.categoria_id ? 'selected' : ''}>${c.nombre}</option>`
-  ).join('');
-
-  document.getElementById('modal-details-area').innerHTML = `
-    <div class="detail-section">
-      <h4>Información del Documento</h4>
-      <div class="detail-grid">
-        <div class="detail-field"><label>Proveedor</label><span>${doc.proveedor || '—'}</span></div>
-        <div class="detail-field"><label>RUT Proveedor</label><span>${doc.rut_proveedor || '—'}</span></div>
-        <div class="detail-field"><label>Fecha Emisión</label><span>${doc.fecha_emision || '—'}</span></div>
-        <div class="detail-field"><label>Folio / N°</label><span>${doc.folio || '—'}</span></div>
-        <div class="detail-field"><label>Monto Neto</label><span>${doc.monto_neto ? '$' + Number(doc.monto_neto).toLocaleString('es-CL') : '—'}</span></div>
-        <div class="detail-field"><label>IVA</label><span>${doc.iva ? '$' + Number(doc.iva).toLocaleString('es-CL') : '—'}</span></div>
-        <div class="detail-field"><label>Total</label><span style="font-size:18px;font-weight:700;color:var(--primary-light)">${doc.monto_total ? '$' + Number(doc.monto_total).toLocaleString('es-CL') : '—'}</span></div>
-        <div class="detail-field"><label>Tipo</label><span>${doc.tipo_documento || '—'}</span></div>
-      </div>
-    </div>
-    <div class="detail-section">
-      <h4>Clasificación IA · Confianza: ${confianza}%</h4>
-      <div class="detail-field">
-        <label>Categoría</label>
-        <select id="modal-categoria-select">
-          <option value="">Sin categoría</option>
-          ${catOptions}
-        </select>
-      </div>
-      <div class="detail-field" style="margin-top:10px">
-        <label>Estado de revisión</label>
-        <select id="modal-estado-select">
-          <option value="pendiente" ${(doc.estado_revision || 'pendiente') === 'pendiente' ? 'selected' : ''}>Pendiente</option>
-          <option value="aprobado" ${doc.estado_revision === 'aprobado' ? 'selected' : ''}>Aprobado</option>
-          <option value="rechazado" ${doc.estado_revision === 'rechazado' ? 'selected' : ''}>Rechazado</option>
-        </select>
-      </div>
-    </div>
-    ${doc.texto_extraido ? `
-    <div class="detail-section">
-      <h4>Texto Extraído (OCR)</h4>
-      <div class="ocr-text-box">${doc.texto_extraido.substring(0, 1000)}${doc.texto_extraido.length > 1000 ? '\n...' : ''}</div>
-    </div>` : ''}
-    ${doc.excepciones && doc.excepciones.length ? `
-    <div class="detail-section">
-      <h4>Alertas del Auditor</h4>
-      ${doc.excepciones.map(e => `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--danger);margin-bottom:6px"><i class="fa-solid fa-triangle-exclamation"></i> ${e}</div>`).join('')}
-    </div>` : ''}`;
-}
-
-async function modalAction(estado) {
-  if (!state.currentDoc || !state.empresa) return;
-  const catSel = document.getElementById('modal-categoria-select');
-  const catId = catSel ? catSel.value : null;
+async function openDocModal(docId) {
+  if (!docId) return;
+  const modal=document.getElementById('docModal');
+  const body=document.getElementById('docModalBody');
+  const footer=document.getElementById('docModalFooter');
+  body.innerHTML=`<div style="text-align:center;padding:36px"><div class="spinner" style="margin:0 auto"></div></div>`;
+  modal.classList.add('open');
   try {
-    await api('/api/empresas/' + state.empresa.id + '/documentos/' + state.currentDoc.id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estado_revision: estado, ...(catId ? { categoria_id: catId } : {}) })
-    });
-    toast(estado === 'aprobado' ? 'Documento aprobado ✓' : 'Documento rechazado', estado === 'aprobado' ? 'success' : 'error');
-    closeModal();
-    loadDocumentos();
-    updateBadge();
-  } catch (e) { toast('Error: ' + e.message, 'error'); }
+    const r=await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`);
+    const doc=await r.json();
+    const ext=(doc.ruta_archivo_original||'').split('.').pop().toLowerCase();
+    const isImg=['jpg','jpeg','png','bmp','webp','tiff'].includes(ext);
+    body.innerHTML=`
+      <div class="doc-detail-grid">
+        <div>
+          <div class="doc-preview">
+            ${isImg?`<img src="${API}/api/documentos/${docId}/preview" style="max-width:100%;max-height:380px;object-fit:contain" onerror="this.parentNode.innerHTML='<div class=\\'no-preview\\'><div class=\\'np-icon\\'>📄</div><div>Vista previa no disponible</div></div>'"/>`:`<div class="no-preview"><div class="np-icon">📄</div><div style="font-size:12px;margin-bottom:10px">Documento PDF</div><a href="${API}/api/documentos/${docId}/download" class="btn btn-secondary btn-sm" download>⬇ Descargar</a></div>`}
+          </div>
+          ${doc.texto_extraido?`<div class="ocr-panel"><div class="ocr-title">Texto extraído (OCR)</div><pre>${escHtml(doc.texto_extraido)}</pre></div>`:''}
+        </div>
+        <div class="doc-fields">
+          <div class="dfr"><div class="dfr-label">Proveedor</div><div class="dfr-value ${!doc.proveedor?'empty':''}">${doc.proveedor||'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">RUT Proveedor</div><div class="dfr-value ${!doc.rut?'empty':''}">${doc.rut||'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">Fecha Emisión</div><div class="dfr-value ${!doc.fecha?'empty':''}">${doc.fecha?doc.fecha.split('T')[0]:'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">Folio / N°</div><div class="dfr-value ${!doc.folio?'empty':''}">${doc.folio||'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">Monto Neto</div><div class="dfr-value">${doc.monto_neto?'$'+Number(doc.monto_neto).toLocaleString('es-CL'):'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">IVA</div><div class="dfr-value">${doc.iva?'$'+Number(doc.iva).toLocaleString('es-CL'):'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">Total</div><div class="dfr-value" style="color:var(--accent2);font-size:15px">${doc.monto_total?'$'+Number(doc.monto_total).toLocaleString('es-CL'):'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">Tipo</div><div class="dfr-value">${doc.tipo||'—'}</div></div>
+          <div class="dfr"><div class="dfr-label">Categoría</div>
+            <select class="form-select" id="modalCatSel" style="margin-top:4px">
+              <option value="">Sin categoría</option>
+              ${state.categorias.map(c=>`<option value="${c.id}" ${doc.categoria===c.nombre?'selected':''}>${c.nombre}</option>`).join('')}
+            </select>
+          </div>
+          <div class="dfr"><div class="dfr-label">Estado</div>
+            <select class="form-select" id="modalEstSel" style="margin-top:4px">
+              <option value="PENDIENTE" ${doc.estado==='pendiente'?'selected':''}>Pendiente</option>
+              <option value="REVISADO" ${doc.estado==='revisado'?'selected':''}>Aprobado</option>
+              <option value="RECHAZADO" ${doc.estado==='rechazado'?'selected':''}>Rechazado</option>
+            </select>
+          </div>
+          ${doc.excepciones&&doc.excepciones.length>0?`<div class="dfr" style="border-color:var(--yellow)"><div class="dfr-label" style="color:var(--yellow)">⚠ Alertas</div>${doc.excepciones.map(e=>`<div style="font-size:11px;margin-top:3px">${e.mensaje||e}</div>`).join('')}</div>`:''}
+        </div>
+      </div>
+    `;
+    footer.innerHTML=`
+      <button class="btn btn-danger btn-sm" onclick="updateDocStatus('${docId}','RECHAZADO')">✕ Rechazar</button>
+      <button class="btn btn-secondary" onclick="closeModal('docModal')">Cerrar</button>
+      <button class="btn btn-success" onclick="updateDocFromModal('${docId}')">✓ Aprobar</button>
+    `;
+  } catch(e) { body.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
 }
 
-function closeModal() {
-  document.getElementById('doc-modal').classList.remove('open');
-  state.currentDoc = null;
+async function updateDocFromModal(docId) {
+  const catId=document.getElementById('modalCatSel')?.value;
+  const estado=document.getElementById('modalEstSel')?.value||'REVISADO';
+  try {
+    await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({categoria_id:catId||null,estado_revision:estado})});
+    showToast('Documento actualizado','success');
+    closeModal('docModal');
+    if (state.currentSection==='documentos') await loadDocumentos();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// DASHBOARD
-// ═══════════════════════════════════════════════════════════════
-async function loadDashboard() {
+async function updateDocStatus(docId, estado) {
+  try {
+    await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado_revision:estado})});
+    showToast(estado==='RECHAZADO'?'Rechazado':'Aprobado',estado==='RECHAZADO'?'error':'success');
+    closeModal('docModal');
+    if (state.currentSection==='documentos') await loadDocumentos();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+// ── Analítica ─────────────────────────────────────────────────────────────────
+async function renderAnalitica() {
   if (!state.empresa) return;
+  document.getElementById('mainContent').innerHTML=`
+    <div class="charts-grid">
+      <div class="chart-card"><div class="card-title">🥧 Gastos por Categoría</div><canvas id="chartCat2"></canvas></div>
+      <div class="chart-card"><div class="card-title">📈 Tendencia Mensual</div><canvas id="chartTrend2"></canvas></div>
+    </div>
+    <div style="margin-top:18px" class="card"><div class="card-title">🏢 Top Proveedores</div><div id="provTable">Cargando...</div></div>
+  `;
   try {
-    const data = await api('/api/empresas/' + state.empresa.id + '/analytics/dashboard');
-    const kpis = data.kpis || {};
-    document.getElementById('kpi-total').textContent = kpis.total_gastos ? '$' + Number(kpis.total_gastos).toLocaleString('es-CL') : '—';
-    document.getElementById('kpi-docs').textContent = kpis.total_documentos || '0';
-    document.getElementById('kpi-pendientes').textContent = kpis.documentos_pendientes || '0';
-    document.getElementById('kpi-proveedores').textContent = kpis.total_proveedores || '0';
-    if (data.por_categoria && data.por_categoria.length) renderCatChart(data.por_categoria);
-    if (data.tendencia_mensual && data.tendencia_mensual.length) renderTendenciaChart(data.tendencia_mensual);
-  } catch (e) {}
+    const [cats,trend,provs]=await Promise.all([
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/categorias`).then(r=>r.json()),
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/tendencias`).then(r=>r.json()),
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/proveedores`).then(r=>r.json()),
+    ]);
+    const c1=document.getElementById('chartCat2');
+    if (c1) { const items=cats.por_categoria||[]; new Chart(c1,{type:'bar',data:{labels:items.map(i=>i.categoria||'Sin cat'),datasets:[{data:items.map(i=>i.total||0),backgroundColor:'rgba(108,99,255,.7)',borderRadius:5}]},options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e2535'}},y:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e2535'}}}}}); }
+    const c2=document.getElementById('chartTrend2');
+    if (c2) { const items=trend.tendencia_mensual||[]; new Chart(c2,{type:'line',data:{labels:items.map(i=>i.mes||''),datasets:[{label:'Gastos',data:items.map(i=>i.total||0),borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,.1)',fill:true,tension:0.4}]},options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e2535'}},y:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e2535'}}}}}); }
+    const pEl=document.getElementById('provTable');
+    const pItems=provs.por_proveedor||[];
+    if (!pItems.length) { pEl.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Sin datos</div>'; return; }
+    pEl.innerHTML=`<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">${['Proveedor','Documentos','Total'].map(h=>`<th style="text-align:left;padding:7px;font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase">${h}</th>`).join('')}</tr></thead><tbody>${pItems.slice(0,10).map(p=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:9px 7px;font-size:12px">${p.proveedor||'—'}</td><td style="padding:9px 7px;font-size:11px;color:var(--text2)">${p.cantidad||0}</td><td style="padding:9px 7px;font-size:12px;font-weight:700;color:var(--accent2)">$${Number(p.total||0).toLocaleString('es-CL')}</td></tr>`).join('')}</tbody></table>`;
+  } catch(e) { console.error(e); }
 }
 
-function renderCatChart(data) {
-  const ctx = document.getElementById('chart-categorias').getContext('2d');
-  if (state.charts.cat) state.charts.cat.destroy();
-  state.charts.cat = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: data.map(d => d.categoria),
-      datasets: [{ data: data.map(d => d.total), backgroundColor: ['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#8b5cf6','#ec4899','#14b8a6'] }]
-    },
-    options: { plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } }, cutout: '65%' }
-  });
+// ── Recomendaciones ───────────────────────────────────────────────────────────
+async function renderRecomendaciones() {
+  if (!state.empresa) return;
+  document.getElementById('mainContent').innerHTML=`<div style="text-align:center;padding:36px"><div class="spinner" style="margin:0 auto 10px"></div>Analizando gastos...</div>`;
+  try {
+    const r=await fetch(`${API}/api/empresas/${state.empresa.id}/recomendaciones`);
+    const d=await r.json(); const recs=d.recomendaciones||[];
+    if (!recs.length) { document.getElementById('mainContent').innerHTML=`<div class="empty-state"><div class="es-icon">💡</div><div class="es-title">Sin recomendaciones</div><div class="es-sub">Sube más documentos para obtener sugerencias</div></div>`; return; }
+    document.getElementById('mainContent').innerHTML=recs.map(rec=>`
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;align-items:flex-start;gap:14px">
+          <div style="font-size:28px">${rec.icono||'💡'}</div>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:700;margin-bottom:5px">${rec.titulo||''}</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px">${rec.descripcion||''}</div>
+            ${rec.ahorro_potencial?`<div style="font-size:12px;color:var(--green);font-weight:700">💰 Ahorro potencial: $${Number(rec.ahorro_potencial).toLocaleString('es-CL')}</div>`:''}
+          </div>
+          <span class="badge ${rec.prioridad==='alta'?'badge-rechazado':rec.prioridad==='media'?'badge-pendiente':'badge-revisado'}">${rec.prioridad||'media'}</span>
+        </div>
+      </div>`).join('');
+  } catch(e) { document.getElementById('mainContent').innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
 }
 
-function renderTendenciaChart(data) {
-  const ctx = document.getElementById('chart-tendencia').getContext('2d');
-  if (state.charts.tend) state.charts.tend.destroy();
-  state.charts.tend = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: data.map(d => d.mes),
-      datasets: [{ label: 'Gastos', data: data.map(d => d.total), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', tension: 0.4, fill: true, pointBackgroundColor: '#6366f1' }]
-    },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
-        y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => '$' + Number(v).toLocaleString('es-CL') }, grid: { color: '#1e293b' } }
-      }
-    }
-  });
+// ── Administración ────────────────────────────────────────────────────────────
+async function renderAdmin() {
+  document.getElementById('mainContent').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+      <div class="card">
+        <div class="card-title">🏢 Empresas <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="openModal('empresaModal')">+ Nueva</button></div>
+        <div id="adminEmpresas">Cargando...</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🏷 Categorías <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="addCategory()">+ Agregar</button></div>
+        <div id="adminCats">Cargando...</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('adminEmpresas').innerHTML=state.empresas.map(e=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:var(--bg3);border:1px solid ${state.empresa?.id===e.id?'var(--accent)':'var(--border)'};border-radius:var(--radius-sm);margin-bottom:6px;cursor:pointer" onclick="selectEmpresa('${e.id}')">
+      <div style="flex:1"><div style="font-size:12px;font-weight:700">${e.razon_social}</div><div style="font-size:10px;color:var(--text3)">${e.rut||'—'} · ${e.pais||'—'}</div></div>
+      ${state.empresa?.id===e.id?'<span style="color:var(--green);font-size:10px;font-weight:700">✓ Activa</span>':''}
+    </div>`).join('')||'<div style="color:var(--text3);font-size:12px">Sin empresas</div>';
+  document.getElementById('adminCats').innerHTML=state.categorias.map(c=>`
+    <div style="display:flex;align-items:center;gap:7px;padding:7px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:5px">
+      <span style="font-size:12px;flex:1">${c.nombre}</span>
+      <span style="font-size:9px;color:var(--text3)">${c.tipo_gasto||'gasto'}</span>
+    </div>`).join('')||'<div style="color:var(--text3);font-size:12px">Sin categorías</div>';
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CONFIGURACIÓN
-// ═══════════════════════════════════════════════════════════════
-async function loadConfig() {
-  const infoEl = document.getElementById('config-empresa-info');
-  if (state.empresa) {
-    infoEl.innerHTML = `<div style="background:var(--bg-primary);border-radius:8px;padding:14px">
-      <div style="font-size:16px;font-weight:700;margin-bottom:6px">${state.empresa.razon_social}</div>
-      <div style="font-size:12px;color:var(--text-secondary)">RUT: ${state.empresa.rut || '—'}</div>
-      <div style="font-size:12px;color:var(--text-secondary)">Giro: ${state.empresa.giro || '—'}</div>
-    </div>`;
-  } else {
-    infoEl.innerHTML = `<p style="color:var(--text-secondary);font-size:13px">No hay empresa configurada.</p>`;
-  }
-  if (state.empresa) {
-    try {
-      const data = await api('/api/empresas/' + state.empresa.id + '/categorias');
-      state.categorias = data.categorias || [];
-      renderCategoriasConfig();
-    } catch (e) {}
-  }
-}
-
-function renderCategoriasConfig() {
-  const list = document.getElementById('config-categorias-list');
-  if (!state.categorias.length) {
-    list.innerHTML = `<p style="color:var(--text-secondary);font-size:12px">Sin categorías. Crea una abajo.</p>`;
-    return;
-  }
-  list.innerHTML = state.categorias.map(c => `
-    <div style="display:flex;align-items:center;gap:8px;background:var(--bg-primary);border-radius:6px;padding:8px 12px">
-      <i class="fa-solid fa-tag" style="color:var(--primary);font-size:12px"></i>
-      <span style="font-size:13px;flex:1">${c.nombre}</span>
-    </div>`).join('');
-}
-
-function showCreateEmpresaForm() {
-  document.getElementById('create-empresa-form').style.display = 'block';
+async function selectEmpresa(id) {
+  state.empresa=state.empresas.find(e=>e.id===id);
+  updateSidebarEmpresa();
+  await loadCategorias();
+  renderAdmin();
+  showToast(`Empresa activa: ${state.empresa.razon_social}`,'info');
 }
 
 async function createEmpresa() {
-  const razon = document.getElementById('new-razon-social').value.trim();
-  const rut = document.getElementById('new-rut').value.trim();
-  const giro = document.getElementById('new-giro').value.trim();
-  if (!razon) { toast('La razón social es obligatoria', 'error'); return; }
+  const razon=document.getElementById('empRazonSocial').value.trim();
+  if (!razon) { showToast('Ingresa la razón social','error'); return; }
   try {
-    const empresa = await api('/api/empresas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ razon_social: razon, rut, giro })
-    });
-    await setEmpresa(empresa);
-    document.getElementById('create-empresa-form').style.display = 'none';
-    ['new-razon-social', 'new-rut', 'new-giro'].forEach(id => document.getElementById(id).value = '');
-    toast('Empresa creada ✓', 'success');
-    loadConfig();
-  } catch (e) { toast('Error: ' + e.message, 'error'); }
+    const r=await fetch(`${API}/api/empresas`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({razon_social:razon,rut:document.getElementById('empRut').value.trim()||'00.000.000-0',pais:document.getElementById('empPais').value,giro:document.getElementById('empGiro').value.trim(),moneda_base:document.getElementById('empMoneda').value})});
+    const d=await r.json();
+    await loadEmpresas();
+    state.empresa=state.empresas.find(e=>e.id===d.id)||state.empresas[0];
+    updateSidebarEmpresa();
+    await loadCategorias();
+    closeModal('empresaModal');
+    showToast('Empresa creada','success');
+    renderAdmin();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
 }
 
-async function createCategoria() {
-  const input = document.getElementById('new-categoria');
-  const nombre = input.value.trim();
-  if (!nombre || !state.empresa) return;
+async function addCategory() {
+  const nombre=prompt('Nombre de la categoría:');
+  if (!nombre||!state.empresa) return;
   try {
-    await api('/api/empresas/' + state.empresa.id + '/categorias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre, tipo: 'gasto' })
-    });
-    input.value = '';
-    toast('Categoría creada ✓', 'success');
-    const data = await api('/api/empresas/' + state.empresa.id + '/categorias');
-    state.categorias = data.categorias || [];
-    renderCategoriasConfig();
-  } catch (e) { toast('Error: ' + e.message, 'error'); }
+    await fetch(`${API}/api/empresas/${state.empresa.id}/categorias`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre:nombre.trim()})});
+    await loadCategorias();
+    showToast('Categoría creada','success');
+    renderAdmin();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
 }
 
-// INIT
+// ── Exportar ──────────────────────────────────────────────────────────────────
+async function exportData() {
+  if (!state.empresa) return;
+  try {
+    const r=await fetch(`${API}/api/empresas/${state.empresa.id}/export/csv`,{method:'POST'});
+    const d=await r.json();
+    if (d.filename) { window.open(`${API}/api/exports/${d.filename}`,'_blank'); showToast('CSV generado','success'); }
+  } catch(e) { showToast('Error exportando: '+e.message,'error'); }
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function showToast(msg, type='info') {
+  const c=document.getElementById('toastContainer');
+  const t=document.createElement('div');
+  t.className=`toast ${type}`;
+  t.innerHTML=`<span>${{success:'✓',error:'✕',info:'ℹ'}[type]||'ℹ'}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(()=>t.remove(),4000);
+}
+function statusLabel(s) { return {pendiente:'Pendiente',revisado:'Aprobado',rechazado:'Rechazado'}[s]||s||'Pendiente'; }
+function fieldLabel(k) { return {proveedor:'Proveedor',rut_proveedor:'RUT',fecha_emision:'Fecha',folio:'Folio',monto_neto:'Neto',iva:'IVA',monto_total:'Total',tipo_documento:'Tipo',moneda:'Moneda',descripcion:'Descripción'}[k]||k; }
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.addEventListener('click',e=>{ if(e.target.classList.contains('modal-overlay')) e.target.classList.remove('open'); });
+
 init();
 </script>
 </body>

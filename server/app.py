@@ -11,7 +11,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.responses import RedirectResponse, FileResponse, StreamingResponse, Response
 from pydantic import BaseModel
 import uvicorn
 from sqlalchemy.orm import Session
@@ -23,6 +23,7 @@ from models import (
     TipoDocumento, EstadoRevision
 )
 from orchestration import DocumentProcessingPipeline
+from pipeline_agent import DocumentPipelineAgent
 from analytics import AnalyticsEngine
 from analytics.recommender import get_recommender_engine
 from analytics.exporter import get_export_engine
@@ -57,13 +58,17 @@ app.add_middleware(
 # ============================================================
 
 class EmpresaCreate(BaseModel):
-    razon_social: str
+    razon_social: Optional[str] = None
+    nombre: Optional[str] = None          # alias de razon_social (enviado por la UI)
     nombre_fantasia: Optional[str] = None
     rut: str = "00.000.000-0"
     pais: str = "Chile"
     moneda_base: str = "CLP"
     regimen_tributario: Optional[str] = None
     giro: Optional[str] = None
+
+    def get_razon_social(self) -> str:
+        return self.razon_social or self.nombre or "Empresa sin nombre"
 
 
 class CentroCostoCreate(BaseModel):
@@ -105,10 +110,11 @@ async def create_empresa(empresa: EmpresaCreate):
     db = SessionLocal()
     try:
         empresa_id = str(uuid.uuid4())
+        razon_social = empresa.get_razon_social()
         new_empresa = Empresa(
             id=empresa_id,
-            razon_social=empresa.razon_social,
-            nombre_fantasia=empresa.nombre_fantasia or empresa.giro,
+            razon_social=razon_social,
+            nombre_fantasia=empresa.nombre_fantasia or empresa.giro or razon_social,
             rut=empresa.rut,
             pais=empresa.pais,
             moneda_base=empresa.moneda_base,
@@ -119,7 +125,8 @@ async def create_empresa(empresa: EmpresaCreate):
         
         return {
             "id": empresa_id,
-            "razon_social": empresa.razon_social,
+            "razon_social": razon_social,
+            "nombre": razon_social,
             "rut": empresa.rut,
             "giro": empresa.giro,
             "mensaje": "Empresa creada exitosamente"
@@ -302,33 +309,103 @@ async def list_categories(empresa_id: str):
 
 @app.post("/api/empresas/{empresa_id}/documentos/upload")
 async def upload_document(empresa_id: str, file: UploadFile = File(...)):
-    """Carga y procesa un documento."""
+    """
+    Paso 1: Sube el archivo y lo guarda en disco.
+    Retorna file_path y file_id para luego conectar al endpoint SSE de procesamiento.
+    """
     db = SessionLocal()
     try:
-        # Verificar empresa
         empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
         if not empresa:
             raise HTTPException(status_code=404, detail="Empresa no encontrada")
-        
-        # Guardar archivo
-        file_extension = Path(file.filename).suffix
+
+        # Guardar archivo con nombre único
+        original_name = file.filename or "documento"
+        file_extension = Path(original_name).suffix.lower()
+        if not file_extension or file_extension not in [".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"]:
+            file_extension = ".pdf"
         file_id = str(uuid.uuid4())
         file_path = UPLOADS_DIR / f"{file_id}{file_extension}"
-        
+
         contents = await file.read()
-        with open(file_path, "wb") as f:
+        if not contents:
+            raise HTTPException(status_code=400, detail="Archivo vacío")
+
+        with open(str(file_path), "wb") as f:
             f.write(contents)
-        
-        # Procesar documento
-        pipeline = DocumentProcessingPipeline(db, empresa_id)
-        result = pipeline.process_document(str(file_path))
-        
-        return result
-    
+
+        print(f"INFO: Archivo guardado → {file_path} ({len(contents):,} bytes)")
+
+        return {
+            "status": "uploaded",
+            "file_id": file_id,
+            "file_path": str(file_path),
+            "original_filename": original_name,
+            "size_bytes": len(contents),
+            "empresa_id": empresa_id
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@app.get("/api/empresas/{empresa_id}/documentos/process-stream")
+async def process_document_stream(
+    empresa_id: str,
+    file_path: str,
+    original_filename: str = "documento"
+):
+    """
+    Paso 2: Procesa el archivo subido y emite eventos SSE por cada paso del pipeline.
+    El cliente conecta con EventSource para recibir el streaming en tiempo real.
+    Pasos: OCR → Visión VLLM → Extracción LLM → Clasificación → Auditoría → Guardado
+    """
+    db = SessionLocal()
+    try:
+        empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+
+        fp = Path(file_path)
+        if not fp.exists():
+            raise HTTPException(status_code=404, detail=f"Archivo no encontrado: {file_path}")
+
+        # Seguridad: verificar que el archivo está dentro del directorio de uploads
+        try:
+            fp.resolve().relative_to(UPLOADS_DIR.resolve())
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Ruta de archivo no permitida")
+
+        agent = DocumentPipelineAgent(db, empresa_id, UPLOADS_DIR)
+
+        def generate():
+            try:
+                for event in agent.process_stream(str(fp), original_filename):
+                    yield event
+            except Exception as e:
+                import json as _json
+                yield f"data: {_json.dumps({'step': 'error', 'status': 'error', 'message': str(e)})}\n\n"
+            finally:
+                db.close()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-store",
+                "X-Accel-Buffering": "no",
+                "Access-Control-Allow-Origin": "*",
+                "Connection": "keep-alive",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.close()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/empresas/{empresa_id}/documentos")
