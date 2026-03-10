@@ -1,20 +1,16 @@
 """
 Agente OCR para extracción de texto de documentos.
-Soporta Tesseract, EasyOCR y extracción directa de PDFs digitales.
+Estrategia de fallbacks robusta:
+  1. PDF digital → PyPDF2 extracción directa (sin dependencias externas)
+  2. PDF escaneado → pdf2image + OCR
+  3. Imagen → EasyOCR (lazy load) → Tesseract → vacío sin crashear
 """
-import os
-import json
-from pathlib import Path
-from typing import Optional, Dict, Tuple
 import hashlib
+import os
+from pathlib import Path
+from typing import Dict, Optional
 
-# Imports opcionales — el agente funciona en modo degradado si no están disponibles
-try:
-    from PIL import Image
-    _PIL_AVAILABLE = True
-except ImportError:
-    _PIL_AVAILABLE = False
-
+# ── Imports opcionales ────────────────────────────────────────────────────────
 try:
     import PyPDF2
     _PYPDF2_AVAILABLE = True
@@ -22,210 +18,196 @@ except ImportError:
     _PYPDF2_AVAILABLE = False
 
 try:
+    from PIL import Image
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
+
+try:
     import pytesseract
     _TESSERACT_AVAILABLE = True
 except ImportError:
     _TESSERACT_AVAILABLE = False
 
-try:
-    import easyocr
-    _EASYOCR_AVAILABLE = True
-except ImportError:
-    _EASYOCR_AVAILABLE = False
+# EasyOCR: lazy load para no bloquear el arranque del servidor
+_easyocr_reader = None
+_easyocr_tried = False
 
-# Configuración
-TESSERACT_PATH = os.environ.get("TESSERACT_PATH", "tesseract")
-OCR_LANG = "spa+eng"  # Español + Inglés
+
+def _get_easyocr_reader():
+    """Carga EasyOCR una sola vez de forma lazy."""
+    global _easyocr_reader, _easyocr_tried
+    if _easyocr_tried:
+        return _easyocr_reader
+    _easyocr_tried = True
+    try:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(["es", "en"], gpu=False, verbose=False)
+        print("INFO: EasyOCR cargado correctamente")
+    except Exception as e:
+        print(f"INFO: EasyOCR no disponible ({e})")
+        _easyocr_reader = None
+    return _easyocr_reader
 
 
 class OCRAgent:
-    """Agente especializado en extracción de texto de documentos."""
-    
+    """Agente OCR con múltiples estrategias de extracción."""
+
     def __init__(self, hardware_profile: str = "cpu"):
-        """
-        Inicializa el agente OCR.
-        
-        Args:
-            hardware_profile: "cpu", "gpu_light", "gpu_heavy"
-        """
         self.hardware_profile = hardware_profile
-        self.reader = None
-        self._init_easyocr()
-    
-    def _init_easyocr(self):
-        """Inicializa EasyOCR si está disponible."""
-        if not _EASYOCR_AVAILABLE:
-            print("INFO: EasyOCR no instalado. Usando Tesseract/PyPDF2 como fallback.")
-            self.reader = None
-            return
-        try:
-            gpu = self.hardware_profile.startswith("gpu")
-            self.reader = easyocr.Reader(["es", "en"], gpu=gpu)
-        except Exception as e:
-            print(f"INFO: EasyOCR no disponible: {e}. Usando Tesseract como fallback.")
-            self.reader = None
-    
-    def extract_from_file(self, file_path: str) -> Dict[str, any]:
+        print(f"INFO: OCRAgent inicializado (perfil: {hardware_profile})")
+
+    def extract_from_file(self, file_path: str) -> Dict:
         """
-        Extrae texto de un archivo (PDF, JPG, PNG).
-        
-        Args:
-            file_path: Ruta al archivo
-            
-        Returns:
-            Dict con texto extraído y metadata
+        Extrae texto de un archivo. Nunca lanza excepciones.
+        Siempre retorna dict con clave 'text'.
         """
         path = Path(file_path)
-        
+        ext = path.suffix.lower()
+
         if not path.exists():
-            return {"error": f"Archivo no encontrado: {file_path}", "text": ""}
-        
-        file_ext = path.suffix.lower()
-        
+            return {"text": "", "method": "error",
+                    "error": f"Archivo no encontrado: {file_path}"}
+
         try:
-            if file_ext == ".pdf":
-                return self._extract_from_pdf(file_path)
-            elif file_ext in [".jpg", ".jpeg", ".png"]:
-                return self._extract_from_image(file_path)
-            else:
-                return {"error": f"Formato no soportado: {file_ext}", "text": ""}
-        except Exception as e:
-            return {"error": f"Error extrayendo texto: {str(e)}", "text": ""}
-    
-    def _extract_from_pdf(self, file_path: str) -> Dict[str, any]:
-        """Extrae texto de un PDF."""
+            file_hash = self._compute_hash(file_path)
+        except Exception:
+            file_hash = ""
+
+        if ext == ".pdf":
+            result = self._extract_pdf(file_path)
+        elif ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"):
+            result = self._extract_image(file_path)
+        else:
+            result = {"text": "", "method": "unsupported",
+                      "error": f"Extensión no soportada: {ext}"}
+
+        result["hash"] = file_hash
+        result["file"] = str(file_path)
+        if "text" not in result:
+            result["text"] = ""
+
+        chars = len(result.get("text", ""))
+        print(f"INFO: OCR completado — método: {result.get('method','?')}, chars: {chars}")
+        return result
+
+    # ── PDF ──────────────────────────────────────────────────────────────────
+
+    def _extract_pdf(self, file_path: str) -> Dict:
+        """Extrae texto de PDF: digital primero, OCR si está escaneado."""
         if not _PYPDF2_AVAILABLE:
-            return {"error": "PyPDF2 no disponible", "text": "", "method": "unavailable"}
-        path = Path(file_path)
-        text_parts = []
-        pages_processed = 0
-        
+            return {"text": "", "method": "error", "error": "PyPDF2 no disponible"}
+
         try:
+            text_parts = []
             with open(file_path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 num_pages = len(reader.pages)
-                
+
                 for page_num, page in enumerate(reader.pages):
-                    # Intentar extracción directa primero (PDF digital)
-                    text = page.extract_text()
-                    
-                    if text and len(text.strip()) > 50:
-                        # PDF digital con texto extraíble
-                        text_parts.append(text)
-                        pages_processed += 1
+                    try:
+                        page_text = page.extract_text() or ""
+                    except Exception:
+                        page_text = ""
+
+                    if len(page_text.strip()) >= 20:
+                        text_parts.append(page_text)
                     else:
-                        # PDF escaneado, usar OCR
-                        try:
-                            # Convertir página a imagen y aplicar OCR
-                            images = self._pdf_page_to_images(file_path, page_num)
-                            for img in images:
-                                ocr_text = self._ocr_image(img)
-                                if ocr_text:
-                                    text_parts.append(ocr_text)
-                            pages_processed += 1
-                        except Exception as e:
-                            print(f"Error procesando página {page_num}: {e}")
-                
-                full_text = "\n---PÁGINA---\n".join(text_parts)
-                
-                return {
-                    "text": full_text,
-                    "pages": num_pages,
-                    "pages_processed": pages_processed,
-                    "method": "pdf_mixed",
-                    "hash": self._compute_hash(file_path)
-                }
-        
-        except Exception as e:
-            return {"error": f"Error procesando PDF: {str(e)}", "text": ""}
-    
-    def _extract_from_image(self, file_path: str) -> Dict[str, any]:
-        """Extrae texto de una imagen."""
-        if not _PIL_AVAILABLE:
-            return {"error": "Pillow no disponible", "text": "", "method": "unavailable"}
-        try:
-            img = Image.open(file_path)
-            text = self._ocr_image(img)
-            
+                        # PDF escaneado: intentar OCR vía pdf2image
+                        ocr_text = self._pdf_page_to_ocr(file_path, page_num)
+                        if ocr_text:
+                            text_parts.append(ocr_text)
+                        elif page_text:
+                            text_parts.append(page_text)
+
+            full_text = "\n\n".join(text_parts).strip()
             return {
-                "text": text,
-                "method": "image_ocr",
-                "size": img.size,
-                "hash": self._compute_hash(file_path)
+                "text": full_text,
+                "method": "pdf_text" if full_text else "pdf_empty",
+                "pages": num_pages
             }
         except Exception as e:
-            return {"error": f"Error procesando imagen: {str(e)}", "text": ""}
-    
-    def _ocr_image(self, image: Image.Image) -> str:
-        """Aplica OCR a una imagen usando EasyOCR o Tesseract."""
-        if self.reader:
-            # Usar EasyOCR (más preciso)
-            try:
-                results = self.reader.readtext(image, detail=0)
-                return "\n".join(results)
-            except Exception as e:
-                print(f"Error con EasyOCR: {e}")
-        
-        # Fallback a Tesseract (requiere binario del sistema)
-        if _TESSERACT_AVAILABLE:
-            try:
-                text = pytesseract.image_to_string(image, lang=OCR_LANG)
-                return text
-            except Exception as e:
-                print(f"INFO: Tesseract no disponible en el sistema: {e}")
-        return ""
-    
-    def _pdf_page_to_images(self, pdf_path: str, page_num: int) -> list:
-        """Convierte una página PDF a imagen(s)."""
+            return {"text": "", "method": "pdf_error", "error": str(e)}
+
+    def _pdf_page_to_ocr(self, pdf_path: str, page_num: int) -> str:
+        """Convierte página PDF a imagen y aplica OCR."""
         try:
             from pdf2image import convert_from_path
-            images = convert_from_path(pdf_path, first_page=page_num+1, last_page=page_num+1)
-            return images
+            images = convert_from_path(pdf_path,
+                                       first_page=page_num + 1,
+                                       last_page=page_num + 1,
+                                       dpi=200)
+            if images:
+                return self._ocr_pil_image(images[0])
         except Exception as e:
-            print(f"Error convirtiendo PDF a imagen: {e}")
-            return []
-    
+            print(f"INFO: pdf2image no disponible ({e})")
+        return ""
+
+    # ── IMAGEN ───────────────────────────────────────────────────────────────
+
+    def _extract_image(self, file_path: str) -> Dict:
+        """Extrae texto de una imagen con múltiples fallbacks."""
+        if not _PIL_AVAILABLE:
+            return {"text": "", "method": "error", "error": "Pillow no disponible"}
+
+        try:
+            img = Image.open(file_path)
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            text = self._ocr_pil_image(img)
+            return {"text": text, "method": "image_ocr", "size": list(img.size)}
+        except Exception as e:
+            return {"text": "", "method": "image_error", "error": str(e)}
+
+    def _ocr_pil_image(self, img) -> str:
+        """
+        OCR sobre imagen PIL con fallbacks:
+        1. EasyOCR (lazy load, más preciso)
+        2. Tesseract (si está instalado en el sistema)
+        3. Retorna vacío sin crashear
+        """
+        # Intento 1: EasyOCR
+        try:
+            reader = _get_easyocr_reader()
+            if reader is not None:
+                import numpy as np
+                img_array = np.array(img)
+                results = reader.readtext(img_array, detail=0, paragraph=True)
+                text = "\n".join(str(r) for r in results)
+                if text.strip():
+                    return text
+        except Exception as e:
+            print(f"INFO: EasyOCR readtext falló ({e})")
+
+        # Intento 2: Tesseract
+        if _TESSERACT_AVAILABLE:
+            try:
+                text = pytesseract.image_to_string(img, lang="spa+eng", config="--psm 3")
+                if text.strip():
+                    return text
+            except Exception as e:
+                print(f"INFO: Tesseract falló ({e})")
+
+        return ""
+
+    # ── UTILIDADES ───────────────────────────────────────────────────────────
+
     def _compute_hash(self, file_path: str) -> str:
-        """Calcula hash SHA256 del archivo."""
+        """SHA256 del archivo para detección de duplicados."""
         sha256 = hashlib.sha256()
         with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
+            for chunk in iter(lambda: f.read(8192), b""):
                 sha256.update(chunk)
         return sha256.hexdigest()
-    
-    def batch_extract(self, folder_path: str, file_extensions: list = None) -> list:
-        """
-        Extrae texto de múltiples archivos en una carpeta.
-        
-        Args:
-            folder_path: Ruta a la carpeta
-            file_extensions: Extensiones a procesar (default: [".pdf", ".jpg", ".png"])
-            
-        Returns:
-            Lista de resultados
-        """
-        if file_extensions is None:
-            file_extensions = [".pdf", ".jpg", ".jpeg", ".png"]
-        
-        folder = Path(folder_path)
-        results = []
-        
-        for file_path in folder.rglob("*"):
-            if file_path.suffix.lower() in file_extensions:
-                result = self.extract_from_file(str(file_path))
-                result["file"] = str(file_path)
-                results.append(result)
-        
-        return results
 
 
-# Instancia global
-ocr_agent = None
+# ── Singleton ─────────────────────────────────────────────────────────────────
+_ocr_agent_instance: Optional[OCRAgent] = None
 
 
 def get_ocr_agent(hardware_profile: str = "cpu") -> OCRAgent:
-    """Obtiene o crea la instancia del agente OCR."""
-    global ocr_agent
-    if ocr_agent is None:
-        ocr_agent = OCRAgent(hardware_profile)
-    return ocr_agent
+    """Obtiene o crea la instancia singleton del agente OCR."""
+    global _ocr_agent_instance
+    if _ocr_agent_instance is None:
+        _ocr_agent_instance = OCRAgent(hardware_profile)
+    return _ocr_agent_instance

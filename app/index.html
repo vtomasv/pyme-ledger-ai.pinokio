@@ -1207,10 +1207,10 @@ function renderDocGrid() {
   const stIcon = { pendiente: 'fa-clock', aprobado: 'fa-check-circle', rechazado: 'fa-xmark-circle', procesando: 'fa-spinner fa-spin' };
 
   grid.innerHTML = docs.map((doc, idx) => {
-    const ext = (doc.nombre_archivo || '').split('.').pop().toLowerCase();
-    const isImg = ['jpg', 'jpeg', 'png'].includes(ext);
+    const ext = (doc.tipo_archivo || (doc.nombre_archivo || '').split('.').pop()).toLowerCase();
+    const isImg = ['jpg', 'jpeg', 'png', 'bmp', 'webp'].includes(ext);
     const preview = isImg
-      ? `<img src="/api/documentos/${doc.id}/preview" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\\'fa-solid fa-file-image\\'></i>'">`
+      ? `<img src="/api/documentos/${doc.id}/preview" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-file-image\'></i>'">`
       : `<i class="fa-solid fa-file-pdf" style="color:var(--danger)"></i>`;
     const st = doc.estado_revision || 'pendiente';
     const total = doc.monto_total ? '$' + Number(doc.monto_total).toLocaleString('es-CL') : '—';
@@ -1242,17 +1242,42 @@ function openDocModal(doc) {
   document.getElementById('doc-modal').classList.add('open');
   document.getElementById('modal-title').textContent = doc.proveedor || doc.nombre_archivo || 'Documento';
 
-  // Preview
+  // Preview — usar tipo_archivo del backend para determinar si es imagen
   const preview = document.getElementById('modal-preview-area');
-  const ext = (doc.nombre_archivo || '').split('.').pop().toLowerCase();
-  if (['jpg', 'jpeg', 'png'].includes(ext)) {
-    preview.innerHTML = `<img src="/api/documentos/${doc.id}/preview" onerror="this.outerHTML='<div class=\\'no-preview\\'><i class=\\'fa-solid fa-image\\'></i><p>Vista previa no disponible</p></div>'" style="max-width:100%;max-height:480px;object-fit:contain;border-radius:8px">`;
+  const ext = (doc.tipo_archivo || (doc.nombre_archivo || '').split('.').pop()).toLowerCase();
+  const isImgModal = ['jpg', 'jpeg', 'png', 'bmp', 'webp'].includes(ext);
+  if (isImgModal) {
+    preview.innerHTML = `<img src="/api/documentos/${doc.id}/preview"
+      onerror="this.outerHTML='<div class=\'no-preview\'><i class=\'fa-solid fa-image\'></i><p>Vista previa no disponible</p></div>'"
+      style="max-width:100%;max-height:480px;object-fit:contain;border-radius:8px;display:block;margin:auto">`;
+  } else if (ext === 'pdf') {
+    // Intentar cargar preview del PDF (thumbnail via pdf2image si está disponible en el servidor)
+    const testImg = new Image();
+    testImg.onload = () => {
+      preview.innerHTML = `<img src="/api/documentos/${doc.id}/preview"
+        style="max-width:100%;max-height:480px;object-fit:contain;border-radius:8px;display:block;margin:auto">`;
+    };
+    testImg.onerror = () => {
+      preview.innerHTML = `<div class="no-preview">
+        <i class="fa-solid fa-file-pdf" style="color:var(--danger);font-size:64px"></i>
+        <p style="margin-top:12px;font-size:14px;font-weight:600">${doc.nombre_archivo || 'Documento PDF'}</p>
+        <a href="/api/documentos/${doc.id}/download" target="_blank" class="btn btn-outline btn-sm" style="margin-top:12px;text-decoration:none">
+          <i class="fa-solid fa-download"></i> Descargar PDF
+        </a>
+      </div>`;
+    };
+    // Mostrar ícono mientras carga
+    preview.innerHTML = `<div class="no-preview">
+      <i class="fa-solid fa-spinner fa-spin" style="font-size:40px;color:var(--text-secondary)"></i>
+      <p style="margin-top:8px;font-size:13px">Cargando vista previa...</p>
+    </div>`;
+    testImg.src = `/api/documentos/${doc.id}/preview`;
   } else {
     preview.innerHTML = `<div class="no-preview">
-      <i class="fa-solid fa-file-pdf" style="color:var(--danger)"></i>
-      <p style="margin-top:8px;font-size:13px">${doc.nombre_archivo || 'Documento PDF'}</p>
+      <i class="fa-solid fa-file" style="color:var(--text-secondary);font-size:64px"></i>
+      <p style="margin-top:12px;font-size:14px">${doc.nombre_archivo || 'Documento'}</p>
       <a href="/api/documentos/${doc.id}/download" target="_blank" class="btn btn-outline btn-sm" style="margin-top:12px;text-decoration:none">
-        <i class="fa-solid fa-download"></i> Descargar PDF
+        <i class="fa-solid fa-download"></i> Descargar
       </a>
     </div>`;
   }

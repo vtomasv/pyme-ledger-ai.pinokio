@@ -350,6 +350,7 @@ async def list_documents(empresa_id: str, limit: int = 50, offset: int = 0):
                 {
                     "id": d.id,
                     "nombre_archivo": Path(d.ruta_archivo_original).name if d.ruta_archivo_original else (d.id + ".pdf"),
+                    "tipo_archivo": Path(d.ruta_archivo_original).suffix.lower().lstrip('.') if d.ruta_archivo_original else "pdf",
                     "fecha_emision": d.fecha_emision.isoformat() if d.fecha_emision else None,
                     "fecha_subida": d.fecha_creacion.isoformat() if d.fecha_creacion else None,
                     "proveedor": d.proveedor,
@@ -604,7 +605,9 @@ async def download_export(filename: str):
 
 @app.get("/api/documentos/{doc_id}/preview")
 async def preview_document(doc_id: str):
-    """Devuelve la imagen de preview de un documento."""
+    """Devuelve la imagen de preview de un documento (imagen directa o thumbnail de PDF)."""
+    import io
+    from fastapi.responses import StreamingResponse, Response
     db = SessionLocal()
     try:
         doc = db.query(Documento).filter(Documento.id == doc_id).first()
@@ -612,30 +615,40 @@ async def preview_document(doc_id: str):
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         file_path = Path(doc.ruta_archivo_original)
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+            raise HTTPException(status_code=404, detail=f"Archivo no encontrado: {file_path}")
         ext = file_path.suffix.lower()
-        if ext in [".jpg", ".jpeg"]:
-            media_type = "image/jpeg"
+        headers = {"Cache-Control": "max-age=3600", "Access-Control-Allow-Origin": "*"}
+
+        # Imágenes: servir directamente
+        if ext in (".jpg", ".jpeg"):
+            with open(str(file_path), "rb") as f:
+                data = f.read()
+            return Response(content=data, media_type="image/jpeg", headers=headers)
         elif ext == ".png":
-            media_type = "image/png"
+            with open(str(file_path), "rb") as f:
+                data = f.read()
+            return Response(content=data, media_type="image/png", headers=headers)
         elif ext == ".pdf":
-            # Para PDFs intentamos generar thumbnail con pdf2image si está disponible
+            # Intentar thumbnail con pdf2image
             try:
                 from pdf2image import convert_from_path
-                import io
-                pages = convert_from_path(str(file_path), first_page=1, last_page=1, dpi=120)
+                pages = convert_from_path(str(file_path), first_page=1, last_page=1, dpi=150)
                 if pages:
                     img_io = io.BytesIO()
-                    pages[0].save(img_io, format="JPEG", quality=75)
+                    pages[0].save(img_io, format="JPEG", quality=80)
                     img_io.seek(0)
-                    from fastapi.responses import StreamingResponse
-                    return StreamingResponse(img_io, media_type="image/jpeg")
-            except Exception:
-                pass
-            raise HTTPException(status_code=415, detail="Preview no disponible para PDF")
+                    return StreamingResponse(img_io, media_type="image/jpeg", headers=headers)
+            except Exception as e:
+                print(f"INFO: pdf2image no disponible para preview ({e})")
+            # Fallback: retornar 204 para que la UI muestre ícono de PDF
+            return Response(status_code=204, headers=headers)
         else:
-            raise HTTPException(status_code=415, detail="Tipo de archivo no soportado")
-        return FileResponse(path=str(file_path), media_type=media_type)
+            return Response(status_code=204, headers=headers)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error en preview: {e}")
+        return Response(status_code=204)
     finally:
         db.close()
 
