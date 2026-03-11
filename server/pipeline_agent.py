@@ -1,13 +1,34 @@
 """
 pipeline_agent.py — Pipeline Agéntico de Procesamiento de Documentos
 ======================================================================
-Arquitectura de 6 pasos con streaming SSE:
+Arquitectura de 6 pasos con streaming SSE y contexto acumulado:
+
   Paso 1: OCR         — Tesseract multi-PSM + preprocesamiento de imagen
-  Paso 2: Visión VLLM — moondream/llava/qwen2.5-vl si disponible en Ollama
-  Paso 3: Extracción  — Regex robusto + LLM (qwen2.5/llama3.2) para campos
-  Paso 4: Clasificación — Keywords semánticos + LLM para categoría contable
-  Paso 5: Auditoría   — Validación, duplicados, anomalías
-  Paso 6: Guardado    — Persiste en SQLite con archivo en disco
+                        → Produce: texto OCR bruto
+
+  Paso 2: Visión IA   — Modelo de visión (qwen3.5:0.8b con imagen en base64)
+                        → Recibe: IMAGEN + prompt + texto OCR del paso 1
+                        → Produce: campos visuales + texto adicional
+
+  Paso 3: Extractor   — Modelo de texto + regex
+                        → Recibe: IMAGEN + prompt + texto OCR + campos visión
+                        → Produce: campos estructurados JSON
+
+  Paso 4: Clasificador — Modelo de texto
+                        → Recibe: todos los campos extraídos + texto combinado
+                        → Produce: categoría contable + confianza
+
+  Paso 5: Auditor     — Reglas + modelo de texto
+                        → Recibe: todos los campos + clasificación + imagen
+                        → Produce: alertas, duplicados, anomalías
+
+  Paso 6: Guardado    — Persiste en SQLite
+
+Principio de contexto acumulado:
+  - Cada agente recibe la imagen (si es imagen) + su system prompt + 
+    TODA la información recuperada por los pasos anteriores
+  - Los agentes finales (Clasificador, Auditor) consolidan la verdad
+    a partir de todas las salidas anteriores
 
 Streaming via SSE: cada paso emite eventos JSON al cliente en tiempo real.
 Compatible con macOS, Windows y Linux.
@@ -24,19 +45,17 @@ import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-# ── Modelos preferidos (en orden de prioridad) ────────────────────────────────
-# Modelo fijo: qwen3.5:0.8b — único modelo soportado
+# ── Modelo único soportado ────────────────────────────────────────────────────
 QWEN_MODEL = "qwen3.5:0.8b"
-
-# Modelo ÚNICO — no se usa ningún otro
 TEXT_MODELS = ["qwen3.5:0.8b"]
-VISION_MODELS = ["qwen3.5:0.8b"]  # qwen3.5 también puede analizar imágenes con base64
+VISION_MODELS = ["qwen3.5:0.8b"]  # qwen3.5 acepta imágenes en base64
+
 
 # ── Utilidades Ollama ─────────────────────────────────────────────────────────
 
@@ -72,16 +91,28 @@ def _find_best_model(preferred_list: List[str], available: List[str]) -> Optiona
 
 
 def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
-                     timeout: int = 120) -> str:
-    """Llama a Ollama y retorna la respuesta completa."""
+                     system: Optional[str] = None,
+                     timeout: int = 120,
+                     temperature: float = 0.1,
+                     max_tokens: int = 1000) -> str:
+    """
+    Llama a Ollama y retorna la respuesta completa.
+    Soporta imágenes en base64 para modelos multimodales.
+    """
     try:
         import requests
         payload: Dict = {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.1, "num_predict": 1000, "top_p": 0.9}
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "top_p": 0.9
+            }
         }
+        if system:
+            payload["system"] = system
         if image_b64:
             payload["images"] = [image_b64]
         r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=timeout)
@@ -91,6 +122,25 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
     except Exception as e:
         logger.debug(f"Ollama error: {e}")
     return ""
+
+
+def _image_to_base64(img_path: str, max_size: int = 1600) -> Optional[str]:
+    """
+    Convierte una imagen a base64 para enviar a modelos de visión.
+    Redimensiona si es necesario para no sobrecargar el modelo.
+    """
+    try:
+        from PIL import Image
+        import io as _io
+        img = Image.open(img_path)
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+        buf = _io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception as e:
+        logger.debug(f"image_to_base64 error: {e}")
+        return None
 
 
 # ── OCR con Tesseract ─────────────────────────────────────────────────────────
@@ -111,7 +161,6 @@ def _preprocess_image(img_path: str) -> List[str]:
         gray = img.convert("L")
 
         # Variante 1: contraste alto + sharpen doble + threshold 180
-        # Ideal para boletas con fondo cuadriculado o ruidoso
         v1 = ImageEnhance.Contrast(gray).enhance(3.0)
         v1 = v1.filter(ImageFilter.SHARPEN)
         v1 = v1.filter(ImageFilter.SHARPEN)
@@ -122,7 +171,6 @@ def _preprocess_image(img_path: str) -> List[str]:
         variants.append(tmp1.name)
 
         # Variante 2: contraste moderado sin binarización
-        # Ideal para documentos con texto de color o gris
         v2 = ImageEnhance.Contrast(gray).enhance(2.0)
         v2 = v2.filter(ImageFilter.SHARPEN)
         tmp2 = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
@@ -131,7 +179,6 @@ def _preprocess_image(img_path: str) -> List[str]:
         variants.append(tmp2.name)
 
         # Variante 3: binarización suave (threshold 140)
-        # Ideal para documentos muy oscuros o de bajo contraste
         v3 = gray.point(lambda x: 0 if x < 140 else 255, "1").convert("L")
         tmp3 = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         v3.save(tmp3.name, "PNG", dpi=(300, 300))
@@ -167,18 +214,13 @@ def _run_tesseract(img_path: str) -> str:
 
 
 def _ocr_quality_score(text: str) -> float:
-    """
-    Calcula un puntaje de calidad del texto OCR.
-    Penaliza caracteres de ruido (\\, /, |, S sueltas) y premia palabras reales.
-    """
+    """Calcula un puntaje de calidad del texto OCR."""
     if not text:
         return 0.0
     words = text.split()
     if not words:
         return 0.0
-    # Contar palabras reales (>2 chars, mayormente alfanuméricas)
     real_words = [w for w in words if len(w) > 2 and re.match(r'[A-Za-z0-9áéíóúÁÉÍÓÚñÑ]', w)]
-    # Penalizar tokens de ruido (letras sueltas, símbolos)
     noise_tokens = [w for w in words if re.match(r'^[\\|/\-_=~<>\^]+$', w) or (len(w) == 1 and not w.isdigit())]
     noise_ratio = len(noise_tokens) / max(len(words), 1)
     score = len(real_words) * (1.0 - noise_ratio)
@@ -206,11 +248,9 @@ def ocr_image(img_path: str) -> Dict:
                 method = "tesseract"
 
     # Combinar textos de todas las variantes para maximizar cobertura
-    # La extraccion de campos se hará sobre el texto combinado
     if len(all_texts) > 1:
         combined = "\n\n".join(all_texts)
         combined_score = _ocr_quality_score(combined)
-        # Si el combinado tiene mejor score, usarlo
         if combined_score > best_score * 1.2:
             best_text = combined
             best_words = len([w for w in combined.split() if len(w) > 2])
@@ -282,7 +322,7 @@ def ocr_pdf(pdf_path: str) -> Dict:
         return {"text": text, "words": len([w for w in text.split() if len(w) > 2]),
                 "method": "pdf_scanned"}
     except Exception as e:
-        logger.debug(f"pdf2image: {e}")
+        logger.debug(f"PDF OCR: {e}")
 
     return {"text": "", "words": 0, "method": "failed"}
 
@@ -335,9 +375,7 @@ def _extract_by_regex(text: str) -> Dict:
 
     # ── Folio / Número de documento ──
     folio_patterns = [
-        # Número solo después del tipo de documento
         r'(?:BOLETA|FACTURA)\s+(?:ELECTR[ÓO]NICA|DE\s+VENTA)\s*[\n\r]+\s*(\d{1,8})\s*[\n\r]',
-        # N° explícito
         r'N[°o]\s*[:\s]?\s*(\d{4,8})',
         r'N[°o]\s+(\d{3,8})',
         r'001[-\s]+N[°o]?\s+(\d{4,8})',
@@ -362,7 +400,6 @@ def _extract_by_regex(text: str) -> Dict:
             if len(y) == 2:
                 y = "20" + y
             try:
-                # Validar que sea una fecha razonable
                 day_int = int(d)
                 mon_int = int(mo)
                 if 1 <= day_int <= 31 and 1 <= mon_int <= 12:
@@ -371,23 +408,17 @@ def _extract_by_regex(text: str) -> Dict:
             except Exception:
                 pass
 
-    # ── Montos — requieren mínimo 3 dígitos para evitar falsos positivos ──
+    # ── Montos ──
     def parse_amount(raw: str) -> Optional[float]:
-        """Parsea un string de monto a float."""
         if not raw:
             return None
-        # Limpiar: quitar puntos de miles, convertir coma decimal
         cleaned = raw.strip()
-        # Formato 1.200,00 → 1200.00
         if re.search(r'\d\.\d{3}', cleaned):
             cleaned = cleaned.replace('.', '').replace(',', '.')
-        # Formato 1,200.00 → 1200.00
         elif re.search(r'\d,\d{3}', cleaned):
             cleaned = cleaned.replace(',', '')
-        # Solo coma decimal: 1200,00 → 1200.00
         elif ',' in cleaned and '.' not in cleaned:
             cleaned = cleaned.replace(',', '.')
-        # Solo puntos: 1200.00 → 1200.00
         else:
             cleaned = cleaned.replace(',', '')
         try:
@@ -398,7 +429,6 @@ def _extract_by_regex(text: str) -> Dict:
 
     # Total — múltiples formatos latinoamericanos
     total_patterns = [
-        # Formatos explícitos con label
         r'TOTAL\s+S/\.?\s*([\d,\.]{3,})',
         r'TOTAL\s+S/\s*([\d,\.]{3,})',
         r'Total\s*[:\s]\s*\$?\s*([\d\.]{3,})',
@@ -410,15 +440,11 @@ def _extract_by_regex(text: str) -> Dict:
         r'TOTAL\s+VENTA\s*[:\s]\s*([\d,\.]{3,})',
         r'TOTAL\s+FACTURA\s*[:\s]\s*([\d,\.]{3,})',
         r'TOTAL\s+BOLETA\s*[:\s]\s*([\d,\.]{3,})',
-        # TOTAL SI (formato peruano)
         r'TOTAL\s+SI\s*[:\s]?\s*([\d,\.]{3,})',
-        # Total seguido de número en la misma línea (sin dos puntos)
         r'^\s*Total\s+(\d[\d\.]{2,})\s*$',
         r'^\s*TOTAL\s+(\d[\d\.]{2,})\s*$',
-        # Formato tabla: Total al final de línea con espacios
         r'Total[\s\t]+(\d[\d\.]{2,})\s*$',
         r'TOTAL[\s\t]+(\d[\d\.]{2,})\s*$',
-        # Monto con $ al final de línea (boletas chilenas)
         r'Total[:\s]*\$\s*(\d[\d\.]{2,})',
         r'TOTAL[:\s]*\$\s*(\d[\d\.]{2,})',
     ]
@@ -429,7 +455,7 @@ def _extract_by_regex(text: str) -> Dict:
             if val and val > 10:
                 fields["monto_total"] = val
                 break
-    # Fallback: si no se encontró total, buscar el número más grande en líneas con 'total'
+    # Fallback: número más grande en líneas con 'total'
     if "monto_total" not in fields:
         for line in text.split('\n'):
             if re.search(r'total', line, re.I):
@@ -442,13 +468,11 @@ def _extract_by_regex(text: str) -> Dict:
             if "monto_total" in fields:
                 break
 
-    # IVA — buscar en línea propia con el label "Iva:" o "IVA:"
-    # Evitar capturar "119" de "producto iva 119"
+    # IVA
     iva_patterns = [
         r'(?:^|\n)\s*I\.?V\.?A\.?\s*[:\s]\s*\$?\s*([\d\.]{2,})\s*(?:\n|$)',
         r'(?:^|\n)\s*IGV\s*[:\s]\s*\$?\s*([\d,\.]{2,})\s*(?:\n|$)',
         r'(?:^|\n)\s*Impuesto\s*[:\s]\s*([\d,\.]{2,})\s*(?:\n|$)',
-        # Fallback: IVA seguido de número al final de línea
         r'I\.?V\.?A\.?[:\s]+\$?\s*(\d{2,6})\s*$',
     ]
     for p in iva_patterns:
@@ -482,20 +506,14 @@ def _extract_by_regex(text: str) -> Dict:
 
     # ── Proveedor ──
     prov_patterns = [
-        # Después de la hora (HH:MM:SS) — el nombre de la empresa suele estar justo después
         r'\d{2}:\d{2}:\d{2}\s*[\n\r]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ\s]{5,60}(?:SPA|S\.A\.|LTDA|SRL|SAC|EIRL|SAS)?)',
-        # Inicio de línea con empresa (Productos "...", etc.)
         r'^(Productos\s+"[^"]+"|Productos\s+[A-Za-z]+)',
-        # Después de "De:"
         r'De:\s*([^\n\r]{5,60})',
-        # Nombre con sufijo empresarial explícito
         r'([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñÁÉÍÓÚÑ\s]{5,50}(?:SPA|S\.A\.|LTDA|SRL|SAC|EIRL|SAS))',
     ]
     for pat in prov_patterns:
         for m in re.finditer(pat, text, re.I | re.MULTILINE):
             prov = m.group(1).strip().rstrip('"').strip()
-            # Filtrar ruido OCR: no debe empezar con letras sueltas (S, N, etc.)
-            # ni contener solo mayúsculas de 1-2 chars
             if (5 < len(prov) < 80 and
                     not re.match(r'^[A-Z]\s+[A-Z]', prov) and
                     not re.match(r'^\d', prov) and
@@ -534,64 +552,158 @@ def _extract_by_regex(text: str) -> Dict:
     return fields
 
 
-# ── Prompts para LLM ──────────────────────────────────────────────────────────
+# ── Prompts para cada agente ──────────────────────────────────────────────────
 
-EXTRACTION_PROMPT = """Extrae datos de este documento contable y devuelve JSON.
+# System prompt del Agente Visual
+# Recibe: imagen + texto OCR del paso anterior
+VISION_SYSTEM_PROMPT = """Eres el Agente Visual, un experto en análisis de documentos contables latinoamericanos.
+Tu rol es analizar visualmente la imagen del documento y extraer TODA la información visible.
+Eres el segundo agente en el pipeline — ya tienes el texto extraído por OCR del paso anterior.
+Debes complementar y corregir el OCR con lo que ves directamente en la imagen.
+Responde SOLO con JSON válido, sin texto adicional ni markdown."""
 
-REGLAS IMPORTANTES:
-- monto_total: busca la palabra TOTAL o Total seguida de un número. Ese número es el monto total.
-- monto_neto: busca Neto, Monto Neto, Subtotal o Base Imponible.
-- iva: busca IVA, I.V.A., IGV seguido de un número.
-- Si ves "Total: 238" entonces monto_total=238.
-- Si ves "Total 238" entonces monto_total=238.
-- Los montos son SOLO números, sin $, sin puntos de miles, sin texto.
-- rut_proveedor: formato XX.XXX.XXX-X o XXXXXXXX-X.
-- fecha_emision: formato YYYY-MM-DD.
+def build_vision_prompt(ocr_text: str) -> str:
+    """Construye el prompt del Agente Visual con el contexto OCR del paso anterior."""
+    return f"""El Agente OCR extrajo el siguiente texto del documento (puede tener errores):
 
-TEXTO:
-{text}
+=== TEXTO OCR (paso anterior) ===
+{ocr_text[:1500] if ocr_text else "(sin texto OCR)"}
+=== FIN TEXTO OCR ===
 
-Devuelve SOLO este JSON (sin texto adicional, sin markdown):
-{{"tipo_documento":"FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO","proveedor":"nombre emisor o null","rut_proveedor":"RUT o null","fecha_emision":"YYYY-MM-DD o null","folio":"numero o null","descripcion":"descripcion o null","monto_neto":numero_o_null,"iva":numero_o_null,"monto_total":numero_o_null,"moneda":"CLP"}}"""
-
-VISION_EXTRACTION_PROMPT = """Eres un experto en documentos contables latinoamericanos. Analiza esta imagen de un documento (factura, boleta, recibo) y extrae toda la información visible.
+Ahora analiza la IMAGEN del documento y extrae todos los campos visibles.
+Corrige los errores del OCR si los detectas mirando la imagen.
 
 Extrae en formato JSON:
 {{
   "tipo_documento": "FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO",
-  "proveedor": "nombre del emisor",
-  "rut_proveedor": "RUT/RUC del emisor",
+  "proveedor": "nombre completo del emisor",
+  "rut_proveedor": "RUT/RUC/RFC del emisor (exactamente como aparece)",
   "fecha_emision": "YYYY-MM-DD",
   "folio": "número de documento",
-  "descripcion": "descripción del producto/servicio",
-  "monto_neto": número,
-  "iva": número,
-  "monto_total": número,
+  "descripcion": "descripción del producto o servicio",
+  "monto_neto": número sin símbolos,
+  "iva": número sin símbolos,
+  "monto_total": número sin símbolos (busca la línea TOTAL al final),
   "moneda": "CLP|USD|EUR|PEN|MXN|ARS",
   "texto_completo": "todo el texto visible en el documento"
 }}
 
-Responde SOLO con el JSON."""
+IMPORTANTE: monto_total es el número que aparece en la línea "TOTAL" o "Total" al final del documento."""
 
-CLASSIFICATION_PROMPT = """Eres un contador experto. Clasifica este gasto empresarial en la categoría contable más apropiada.
 
-INFORMACIÓN DEL GASTO:
-- Proveedor: {proveedor}
-- Descripción: {descripcion}
-- Tipo documento: {tipo_documento}
-- Monto: {monto_total} {moneda}
+# System prompt del Agente Extractor
+# Recibe: imagen + texto OCR + campos del Agente Visual
+EXTRACTOR_SYSTEM_PROMPT = """Eres el Agente Extractor, un contador experto en documentos contables latinoamericanos.
+Tu rol es extraer campos estructurados del documento con máxima precisión.
+Eres el tercer agente en el pipeline — tienes el texto OCR y los campos detectados por el Agente Visual.
+Debes consolidar y completar la información, priorizando los valores más confiables.
+Responde SOLO con JSON válido, sin texto adicional ni markdown."""
+
+def build_extractor_prompt(ocr_text: str, vision_fields: Dict) -> str:
+    """Construye el prompt del Agente Extractor con el contexto acumulado."""
+    vision_summary = json.dumps(vision_fields, ensure_ascii=False, indent=2) if vision_fields else "(sin campos del agente visual)"
+    return f"""Tienes acceso a:
+
+=== TEXTO OCR (Agente OCR) ===
+{ocr_text[:2000] if ocr_text else "(sin texto OCR)"}
+=== FIN TEXTO OCR ===
+
+=== CAMPOS DETECTADOS POR AGENTE VISUAL ===
+{vision_summary}
+=== FIN CAMPOS VISUALES ===
+
+Analiza TODA esta información (y la imagen si está disponible) y extrae los campos con máxima precisión.
+
+REGLAS CRÍTICAS para montos:
+- monto_total: busca "TOTAL", "Total:", "TOTAL:", seguido de un número. ESE número es el total.
+- Si el OCR dice "Total: 238" o "Total 238" o "TOTAL 238" → monto_total = 238
+- Si el Agente Visual detectó un monto_total diferente, usa el que tenga más sentido
+- Los montos son SOLO números (sin $, sin puntos de miles, sin texto)
+- Si monto_neto e iva están disponibles: monto_total = monto_neto + iva
+- rut_proveedor: formato chileno XX.XXX.XXX-X, peruano XXXXXXXXXX, mexicano RFC
+- fecha_emision: formato YYYY-MM-DD
+
+Devuelve SOLO este JSON (sin texto adicional):
+{{"tipo_documento":"FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO","proveedor":"nombre o null","rut_proveedor":"identificador fiscal o null","fecha_emision":"YYYY-MM-DD o null","folio":"numero o null","descripcion":"descripcion o null","monto_neto":numero_o_null,"iva":numero_o_null,"monto_total":numero_o_null,"moneda":"CLP|PEN|MXN|USD|ARS"}}"""
+
+
+# System prompt del Agente Clasificador
+# Recibe: todos los campos extraídos + texto combinado
+CLASSIFIER_SYSTEM_PROMPT = """Eres el Agente Clasificador, un contador experto en categorización de gastos empresariales.
+Tu rol es determinar la categoría contable más apropiada para este gasto.
+Tienes acceso a TODA la información extraída por los agentes anteriores.
+Responde SOLO con JSON válido, sin texto adicional ni markdown."""
+
+def build_classifier_prompt(fields: Dict, combined_text: str, categorias: str) -> str:
+    """Construye el prompt del Agente Clasificador con contexto completo."""
+    return f"""Clasifica este gasto empresarial en la categoría contable más apropiada.
+
+=== INFORMACIÓN EXTRAÍDA (todos los agentes anteriores) ===
+- Tipo documento: {fields.get('tipo_documento', 'desconocido')}
+- Proveedor: {fields.get('proveedor', 'desconocido')}
+- RUT/RUC: {fields.get('rut_proveedor', 'no detectado')}
+- Descripción/Giro: {fields.get('descripcion', 'no detectada')}
+- Monto total: {fields.get('monto_total', 'no detectado')} {fields.get('moneda', 'CLP')}
+- Fecha: {fields.get('fecha_emision', 'no detectada')}
+=== FIN INFORMACIÓN ===
+
+=== TEXTO DEL DOCUMENTO (primeras 500 palabras) ===
+{combined_text[:1000] if combined_text else "(sin texto)"}
+=== FIN TEXTO ===
 
 CATEGORÍAS DISPONIBLES:
 {categorias}
 
 Responde en JSON:
 {{
-  "categoria": "nombre exacto de la categoría",
+  "categoria": "nombre exacto de la categoría de la lista",
   "confianza": 0.0 a 1.0,
-  "razon": "explicación breve de por qué esta categoría"
-}}
+  "razon": "explicación breve (máximo 100 caracteres)"
+}}"""
 
-Responde SOLO con el JSON."""
+
+# System prompt del Agente Auditor
+# Recibe: todos los campos + clasificación + imagen (si disponible)
+AUDITOR_SYSTEM_PROMPT = """Eres el Agente Auditor, un experto en control interno y detección de anomalías contables.
+Tu rol es validar la coherencia del documento y detectar problemas.
+Tienes acceso a TODA la información del pipeline: OCR, visión, extracción y clasificación.
+Responde SOLO con JSON válido, sin texto adicional ni markdown."""
+
+def build_auditor_prompt(fields: Dict, classification: Dict, ocr_text: str, vision_fields: Dict) -> str:
+    """Construye el prompt del Agente Auditor con contexto completo."""
+    return f"""Audita este documento contable y detecta anomalías.
+
+=== CAMPOS EXTRAÍDOS (consolidados) ===
+{json.dumps(fields, ensure_ascii=False, indent=2)}
+=== FIN CAMPOS ===
+
+=== CLASIFICACIÓN SUGERIDA ===
+- Categoría: {classification.get('categoria_sugerida', 'Sin categoría')}
+- Confianza: {classification.get('confianza', 0):.0%}
+- Razón: {classification.get('razon', '')}
+=== FIN CLASIFICACIÓN ===
+
+=== CAMPOS DEL AGENTE VISUAL ===
+{json.dumps(vision_fields, ensure_ascii=False)}
+=== FIN CAMPOS VISUALES ===
+
+Verifica:
+1. ¿Los montos son coherentes? (monto_neto + iva ≈ monto_total)
+2. ¿La fecha es razonable? (no futura, no muy antigua)
+3. ¿El proveedor y la descripción son coherentes con la categoría?
+4. ¿Hay campos críticos faltantes?
+5. ¿El documento parece legítimo?
+
+Responde en JSON:
+{{
+  "anomalias": ["lista de anomalías detectadas, vacía si no hay"],
+  "campos_faltantes": ["lista de campos críticos no detectados"],
+  "coherencia_montos": true/false,
+  "requiere_revision_manual": true/false,
+  "nivel_confianza_documento": 0.0 a 1.0,
+  "observacion": "observación general breve"
+}}"""
+
 
 KEYWORD_MAP = {
     "tecnología": ["software", "hosting", "cloud", "internet", "computaci",
@@ -620,6 +732,8 @@ def _parse_json_response(text: str) -> Dict:
     """Extrae JSON de la respuesta del LLM."""
     if not text:
         return {}
+    # Eliminar thinking tags de qwen3.5 (<think>...</think>)
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
     patterns = [
         r"```json\s*([\s\S]*?)\s*```",
         r"```\s*([\s\S]*?)\s*```",
@@ -643,7 +757,13 @@ def _parse_json_response(text: str) -> Dict:
 
 class DocumentPipelineAgent:
     """
-    Agente de procesamiento de documentos con pipeline visible.
+    Agente de procesamiento de documentos con pipeline visible y contexto acumulado.
+
+    Flujo de contexto:
+      OCR → (texto) → Visual (imagen + texto OCR) → Extractor (imagen + texto + campos visual)
+      → Clasificador (campos consolidados + texto) → Auditor (todo lo anterior + imagen)
+      → Guardado
+
     Emite eventos SSE por cada paso del pipeline.
     """
 
@@ -674,33 +794,99 @@ class DocumentPipelineAgent:
         }
         return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
+    def _get_agent_config(self, agent_id: str) -> Dict:
+        """
+        Obtiene la configuración del agente desde el archivo JSON de configuración.
+        El archivo es gestionado por los endpoints /api/agents en app.py.
+        """
+        try:
+            agents_file = self.uploads_dir.parent / "agents_config.json"
+            if agents_file.exists():
+                agents = json.loads(agents_file.read_text(encoding="utf-8"))
+                for a in agents:
+                    if a.get("id") == agent_id:
+                        params = a.get("parametros", {})
+                        return {
+                            "modelo": a.get("modelo") or QWEN_MODEL,
+                            "prompt": a.get("prompt") or "",
+                            "system_prompt": a.get("system_prompt") or "",
+                            "timeout": params.get("timeout", 120),
+                            "temperature": params.get("temperature", 0.1),
+                            "max_tokens": params.get("max_tokens", 800),
+                        }
+        except Exception as e:
+            logger.debug(f"AgentConfig read error: {e}")
+        # Defaults por agente si no hay archivo de configuración
+        defaults = {
+            "vision":     {"timeout": 180, "temperature": 0.1, "max_tokens": 800},
+            "extractor":  {"timeout": 120, "temperature": 0.1, "max_tokens": 600},
+            "clasificador": {"timeout": 60, "temperature": 0.1, "max_tokens": 256},
+            "auditor":    {"timeout": 90,  "temperature": 0.1, "max_tokens": 512},
+        }
+        d = defaults.get(agent_id, {"timeout": 120, "temperature": 0.1, "max_tokens": 800})
+        return {
+            "modelo": QWEN_MODEL,
+            "prompt": "",
+            "system_prompt": "",
+            **d
+        }
+
     def process_stream(self, file_path: str, original_filename: str) -> Generator[str, None, None]:
         """
         Procesa un documento y emite eventos SSE por cada paso.
-        Yields: strings con formato SSE.
+        Cada agente recibe la imagen + su prompt + contexto acumulado de pasos anteriores.
         """
         doc_id = str(uuid.uuid4())
         ext = Path(file_path).suffix.lower()
         text_model, vision_model = self._get_models()
 
-        # Contexto acumulado durante el pipeline
+        # Determinar si el archivo es una imagen (para enviar a modelos de visión)
+        is_image = ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
+
+        # Pre-cargar imagen en base64 una sola vez (reutilizada por todos los agentes)
+        img_b64: Optional[str] = None
+        if is_image:
+            img_b64 = _image_to_base64(file_path)
+
+        # Para PDFs escaneados, convertir primera página a imagen para los agentes de visión
+        if not is_image and ext == ".pdf" and vision_model:
+            try:
+                from pdf2image import convert_from_path
+                images = convert_from_path(file_path, dpi=150, first_page=1, last_page=1)
+                if images:
+                    import io as _io
+                    buf = _io.BytesIO()
+                    images[0].convert("RGB").save(buf, format="JPEG", quality=80)
+                    img_b64 = base64.b64encode(buf.getvalue()).decode()
+                    logger.info("PDF convertido a imagen para agentes de visión")
+            except Exception as e:
+                logger.debug(f"PDF to image: {e}")
+
+        # ── Contexto acumulado durante el pipeline ────────────────────────────
+        # Cada agente lee y escribe en este contexto
         ctx: Dict = {
             "doc_id": doc_id,
             "file_path": file_path,
             "original_filename": original_filename,
-            "ocr_text": "",
-            "vision_text": "",
-            "combined_text": "",
-            "fields": {},
-            "classification": {},
-            "audit": {},
+            "ext": ext,
+            "is_image": is_image,
+            "img_b64": img_b64,            # Imagen compartida por todos los agentes
+            "ocr_text": "",                # Salida del Agente OCR
+            "vision_fields": {},           # Salida del Agente Visual
+            "vision_text": "",             # Texto adicional del Agente Visual
+            "combined_text": "",           # Texto combinado OCR + Visual
+            "fields": {},                  # Campos consolidados (Extractor)
+            "classification": {},          # Salida del Agente Clasificador
+            "audit": {},                   # Salida del Agente Auditor
             "saved": False,
         }
 
         # ── PASO 1: OCR ───────────────────────────────────────────────────────
+        # El OCR no usa LLM — usa Tesseract/EasyOCR directamente
+        # Produce: texto bruto que alimenta a todos los agentes siguientes
         yield self._emit("ocr", "running", {
-            "title": "Extracción de texto (OCR)",
-            "message": f"Procesando {original_filename} con Tesseract multi-PSM..."
+            "title": "Agente OCR — Extracción de texto",
+            "message": f"Procesando {original_filename} con Tesseract multi-PSM + preprocesamiento..."
         })
 
         try:
@@ -713,7 +899,7 @@ class DocumentPipelineAgent:
             ctx["combined_text"] = ocr_result["text"]
 
             yield self._emit("ocr", "done", {
-                "title": "OCR completado",
+                "title": "Agente OCR completado",
                 "message": f"Extraídas {ocr_result['words']} palabras via {ocr_result['method']}",
                 "words": ocr_result["words"],
                 "method": ocr_result["method"],
@@ -721,92 +907,121 @@ class DocumentPipelineAgent:
             })
         except Exception as e:
             logger.error(f"OCR error: {e}")
+            ctx["ocr_text"] = ""
             yield self._emit("ocr", "error", {
                 "title": "OCR falló",
                 "message": str(e)
             })
 
-        # ── PASO 2: Visión VLLM ───────────────────────────────────────────────
-        if vision_model and ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"):
+        # ── PASO 2: Agente Visual ─────────────────────────────────────────────
+        # Recibe: IMAGEN (base64) + texto OCR del paso anterior
+        # Produce: campos visuales + texto adicional
+        if vision_model and img_b64:
+            cfg_vision = self._get_agent_config("vision")
             yield self._emit("vision", "running", {
-                "title": f"Análisis visual ({vision_model})",
-                "message": f"Enviando imagen al modelo de visión {vision_model}..."
+                "title": "Agente Visual — Análisis de imagen",
+                "message": "Analizando imagen con motor IA visual + contexto OCR..."
             })
             try:
-                from PIL import Image
-                import io as _io
-                img = Image.open(file_path)
-                if max(img.size) > 1600:
-                    img.thumbnail((1600, 1600), Image.LANCZOS)
-                buf = _io.BytesIO()
-                img.convert("RGB").save(buf, format="JPEG", quality=85)
-                img_b64 = base64.b64encode(buf.getvalue()).decode()
+                # Usar prompt/system_prompt configurado, sino el default
+                vision_prompt = cfg_vision["prompt"] if cfg_vision["prompt"] else build_vision_prompt(ctx["ocr_text"])
+                vision_system = cfg_vision["system_prompt"] if cfg_vision["system_prompt"] else VISION_SYSTEM_PROMPT
 
                 vision_resp = _ollama_generate(
-                    vision_model,
-                    VISION_EXTRACTION_PROMPT,
-                    image_b64=img_b64,
-                    timeout=180
+                    model=vision_model,
+                    prompt=vision_prompt,
+                    image_b64=img_b64,                    # ← IMAGEN incluida
+                    system=vision_system,
+                    timeout=cfg_vision["timeout"],
+                    temperature=cfg_vision["temperature"],
+                    max_tokens=cfg_vision["max_tokens"]
                 )
 
-                vision_fields = _parse_json_response(vision_resp)
-                if vision_fields.get("texto_completo"):
-                    ctx["vision_text"] = vision_fields.pop("texto_completo", "")
+                vision_data = _parse_json_response(vision_resp)
+
+                # Extraer texto completo si el modelo lo devolvió
+                if vision_data.get("texto_completo"):
+                    ctx["vision_text"] = str(vision_data.pop("texto_completo", ""))
+                    # Combinar OCR + texto visual para máxima cobertura
                     ctx["combined_text"] = (
-                        ctx["ocr_text"] + "\n\n[VISIÓN]\n" + ctx["vision_text"]
+                        ctx["ocr_text"] + "\n\n[AGENTE VISUAL]\n" + ctx["vision_text"]
                     ).strip()
 
-                # Merge campos del vision (solo si no están vacíos)
-                for k, v in vision_fields.items():
-                    if v and v not in (None, "", "null", "None") and k not in ctx["fields"]:
+                # Guardar campos del agente visual (sin sobrescribir nulos)
+                ctx["vision_fields"] = {
+                    k: v for k, v in vision_data.items()
+                    if v is not None and v not in ("", "null", "None")
+                }
+
+                # Merge inicial de campos (el Extractor los consolidará)
+                for k, v in ctx["vision_fields"].items():
+                    if k not in ctx["fields"] or not ctx["fields"][k]:
                         ctx["fields"][k] = v
 
                 yield self._emit("vision", "done", {
-                    "title": f"Visión completada ({vision_model})",
-                    "message": f"Campos adicionales: {[k for k, v in vision_fields.items() if v]}",
-                    "fields_found": [k for k, v in vision_fields.items() if v],
+                    "title": "Agente Visual completado",
+                    "message": f"Detectados {len(ctx['vision_fields'])} campos en la imagen",
+                    "fields_found": list(ctx["vision_fields"].keys()),
                     "preview": ctx["vision_text"][:300] if ctx["vision_text"] else ""
                 })
             except Exception as e:
+                logger.error(f"Vision error: {e}")
                 yield self._emit("vision", "error", {
-                    "title": "Visión falló (continuando sin ella)",
+                    "title": "Agente Visual falló (continuando)",
                     "message": str(e)[:200]
                 })
         else:
-            reason = "No hay modelo de visión disponible" if not vision_model else "Archivo PDF — usando solo OCR"
+            reason = "Motor IA no disponible (Ollama offline)" if not vision_model else "PDF sin conversión de imagen"
             yield self._emit("vision", "info", {
-                "title": "Visión omitida",
+                "title": "Agente Visual omitido",
                 "message": reason
             })
 
-        # ── PASO 3: Extracción de campos ──────────────────────────────────────
+        # ── PASO 3: Agente Extractor ──────────────────────────────────────────
+        # Recibe: IMAGEN + texto OCR + campos del Agente Visual
+        # Produce: campos estructurados consolidados
+        cfg_extractor = self._get_agent_config("extractor")
         yield self._emit("extraction", "running", {
-            "title": f"Extracción de campos ({text_model or 'regex'})",
-            "message": "Identificando proveedor, fecha, montos, folio..."
+            "title": "Agente Extractor — Consolidación de campos",
+            "message": "Extrayendo campos con IA + regex sobre texto OCR y campos visuales..."
         })
 
         try:
-            # Regex siempre como base (rápido y confiable)
+            # 1. Regex siempre como base (rápido, sin LLM)
             regex_fields = _extract_by_regex(ctx["combined_text"])
-            ctx["fields"].update({k: v for k, v in regex_fields.items()
-                                   if k not in ctx["fields"] or not ctx["fields"][k]})
+            # Merge: regex completa lo que no detectó el Agente Visual
+            for k, v in regex_fields.items():
+                if k not in ctx["fields"] or not ctx["fields"][k]:
+                    ctx["fields"][k] = v
 
-            # LLM si disponible (mejora campos no detectados por regex)
-            if text_model and ctx["combined_text"] and len(ctx["combined_text"].split()) >= 10:
-                text_to_analyze = ctx["combined_text"][:3000]
+            # 2. LLM con imagen + contexto acumulado si está disponible
+            if text_model and ctx["combined_text"] and len(ctx["combined_text"].split()) >= 5:
+                # Usar prompt personalizado si está configurado
+                if cfg_extractor["prompt"]:
+                    extractor_prompt = cfg_extractor["prompt"].replace("{text}", ctx["combined_text"][:2500])
+                else:
+                    extractor_prompt = build_extractor_prompt(ctx["ocr_text"], ctx["vision_fields"])
+
+                extractor_system = cfg_extractor["system_prompt"] if cfg_extractor["system_prompt"] else EXTRACTOR_SYSTEM_PROMPT
                 llm_resp = _ollama_generate(
-                    text_model,
-                    EXTRACTION_PROMPT.format(text=text_to_analyze),
-                    timeout=90
+                    model=text_model,
+                    prompt=extractor_prompt,
+                    image_b64=img_b64,                    # ← IMAGEN incluida
+                    system=extractor_system,
+                    timeout=cfg_extractor["timeout"],
+                    temperature=cfg_extractor["temperature"],
+                    max_tokens=cfg_extractor["max_tokens"]
                 )
                 llm_fields = _parse_json_response(llm_resp)
-                # LLM tiene prioridad para monto_total y campos no encontrados por regex
-                PRIORITY_FIELDS = {"monto_total", "monto_neto", "iva", "proveedor", "descripcion"}
+
+                # El Extractor consolida: LLM tiene prioridad para campos clave
+                PRIORITY_FIELDS = {"monto_total", "monto_neto", "iva", "proveedor",
+                                   "descripcion", "tipo_documento", "fecha_emision",
+                                   "folio", "rut_proveedor"}
                 for k, v in llm_fields.items():
-                    if v is not None and v not in ("", "null", "None"):
-                        # Para campos de monto y proveedor, LLM siempre tiene prioridad
+                    if v is not None and v not in ("", "null", "None", 0):
                         if k in PRIORITY_FIELDS:
-                            ctx["fields"][k] = v
+                            ctx["fields"][k] = v  # LLM siempre gana para campos clave
                         elif k not in ctx["fields"] or not ctx["fields"][k]:
                             ctx["fields"][k] = v
 
@@ -817,8 +1032,8 @@ class DocumentPipelineAgent:
             }
 
             yield self._emit("extraction", "done", {
-                "title": "Campos extraídos",
-                "message": f"Encontrados {len(ctx['fields'])} campos",
+                "title": "Agente Extractor completado",
+                "message": f"Consolidados {len(ctx['fields'])} campos (OCR + Visual + LLM)",
                 "fields": {k: str(v) for k, v in ctx["fields"].items()}
             })
         except Exception as e:
@@ -829,10 +1044,13 @@ class DocumentPipelineAgent:
                 "fields": {k: str(v) for k, v in ctx["fields"].items()}
             })
 
-        # ── PASO 4: Clasificación ─────────────────────────────────────────────
+        # ── PASO 4: Agente Clasificador ───────────────────────────────────────
+        # Recibe: todos los campos consolidados + texto completo
+        # Produce: categoría contable + confianza
+        cfg_classifier = self._get_agent_config("clasificador")
         yield self._emit("classification", "running", {
-            "title": f"Clasificación del gasto ({text_model or 'keywords'})",
-            "message": "Determinando categoría contable..."
+            "title": "Agente Clasificador — Categorización contable",
+            "message": "Determinando categoría con todos los campos extraídos..."
         })
 
         try:
@@ -840,7 +1058,6 @@ class DocumentPipelineAgent:
             categorias = self.db.query(CategoriaContable).filter(
                 CategoriaContable.empresa_id == self.empresa_id
             ).all()
-            # CategoriaContable no tiene campo 'descripcion' — usar tipo_gasto
             cat_list = [{"id": c.id, "nombre": c.nombre,
                          "descripcion": c.tipo_gasto or c.nombre} for c in categorias]
 
@@ -855,24 +1072,34 @@ class DocumentPipelineAgent:
                 desc_lower = str(ctx["fields"].get("descripcion", "")).lower()
                 search_text = combined_lower + " " + proveedor_lower + " " + desc_lower
 
-                # 1. LLM classification
+                # 1. LLM con contexto completo
                 if text_model:
                     cat_names = "\n".join(
                         f"- {c['nombre']}" + (f" ({c['descripcion']})" if c['descripcion'] != c['nombre'] else "")
                         for c in cat_list
                     )
-                    llm_resp = _ollama_generate(
-                        text_model,
-                        CLASSIFICATION_PROMPT.format(
+                    if cfg_classifier["prompt"]:
+                        cls_prompt = cfg_classifier["prompt"].format(
                             proveedor=ctx["fields"].get("proveedor", "Desconocido"),
-                            descripcion=ctx["fields"].get("descripcion",
-                                         ctx["combined_text"][:200]),
+                            descripcion=ctx["fields"].get("descripcion", ctx["combined_text"][:200]),
                             tipo_documento=ctx["fields"].get("tipo_documento", ""),
                             monto_total=ctx["fields"].get("monto_total", ""),
                             moneda=ctx["fields"].get("moneda", "CLP"),
-                            categorias=cat_names
-                        ),
-                        timeout=60
+                            categorias=cat_names,
+                            resumen="",
+                            giro=""
+                        )
+                    else:
+                        cls_prompt = build_classifier_prompt(ctx["fields"], ctx["combined_text"], cat_names)
+
+                    classifier_system = cfg_classifier["system_prompt"] if cfg_classifier["system_prompt"] else CLASSIFIER_SYSTEM_PROMPT
+                    llm_resp = _ollama_generate(
+                        model=text_model,
+                        prompt=cls_prompt,
+                        system=classifier_system,
+                        timeout=cfg_classifier["timeout"],
+                        temperature=cfg_classifier["temperature"],
+                        max_tokens=cfg_classifier["max_tokens"]
                     )
                     cls_data = _parse_json_response(llm_resp)
                     if cls_data.get("categoria"):
@@ -903,7 +1130,6 @@ class DocumentPipelineAgent:
                         if c["nombre"].lower() == classification["categoria_sugerida"].lower():
                             classification["categoria_id"] = c["id"]
                             break
-                    # Si no hay match exacto, buscar parcial
                     if not classification["categoria_id"]:
                         for c in cat_list:
                             if (c["nombre"].lower() in classification["categoria_sugerida"].lower() or
@@ -915,7 +1141,7 @@ class DocumentPipelineAgent:
             ctx["classification"] = classification
 
             yield self._emit("classification", "done", {
-                "title": "Clasificación completada",
+                "title": "Agente Clasificador completado",
                 "message": (f"Categoría: {classification['categoria_sugerida'] or 'Sin categoría'} "
                             f"(confianza: {int(classification['confianza'] * 100)}%)"),
                 "categoria_sugerida": classification["categoria_sugerida"],
@@ -930,10 +1156,13 @@ class DocumentPipelineAgent:
                 "message": str(e)
             })
 
-        # ── PASO 5: Auditoría ─────────────────────────────────────────────────
+        # ── PASO 5: Agente Auditor ────────────────────────────────────────────
+        # Recibe: TODOS los campos + clasificación + imagen (opcional)
+        # Produce: alertas, validación de coherencia, detección de anomalías
+        cfg_auditor = self._get_agent_config("auditor")
         yield self._emit("audit", "running", {
-            "title": "Auditoría y validación",
-            "message": "Verificando duplicados y anomalías..."
+            "title": "Agente Auditor — Validación y anomalías",
+            "message": "Verificando coherencia, duplicados y anomalías con contexto completo..."
         })
 
         try:
@@ -941,14 +1170,14 @@ class DocumentPipelineAgent:
             excepciones = []
             requiere_revision = False
 
-            # Hash del archivo
+            # Hash del archivo para detección de duplicados
             sha256 = hashlib.sha256()
             with open(file_path, "rb") as f:
                 for chunk in iter(lambda: f.read(8192), b""):
                     sha256.update(chunk)
             file_hash = sha256.hexdigest()
 
-            # Verificar duplicado
+            # Verificar duplicado exacto (mismo archivo)
             dup = self.db.query(DocModel).filter(
                 DocModel.empresa_id == self.empresa_id,
                 DocModel.hash_documento == file_hash
@@ -971,11 +1200,66 @@ class DocumentPipelineAgent:
                                      "mensaje": "Proveedor no detectado"})
                 requiere_revision = True
 
+            # Verificar coherencia de montos
+            monto_total = ctx["fields"].get("monto_total")
+            monto_neto = ctx["fields"].get("monto_neto")
+            iva = ctx["fields"].get("iva")
+            if monto_total and monto_neto and iva:
+                try:
+                    total_calc = float(monto_neto) + float(iva)
+                    total_doc = float(monto_total)
+                    if abs(total_calc - total_doc) > total_doc * 0.05:  # >5% diferencia
+                        excepciones.append({
+                            "tipo": "INCOHERENCIA_MONTOS",
+                            "mensaje": f"Neto ({monto_neto}) + IVA ({iva}) ≠ Total ({monto_total})"
+                        })
+                        requiere_revision = True
+                except Exception:
+                    pass
+
             # Baja confianza de clasificación
             if ctx["classification"].get("confianza", 0) < 0.5:
                 excepciones.append({"tipo": "BAJA_CONFIANZA",
                                      "mensaje": "Clasificación con baja confianza"})
                 requiere_revision = True
+
+            # Auditoría con LLM si está disponible (para detectar anomalías semánticas)
+            if text_model and not dup:  # No auditar duplicados con LLM (ya sabemos que son duplicados)
+                try:
+                    if cfg_auditor["prompt"]:
+                        audit_prompt = cfg_auditor["prompt"]
+                    else:
+                        audit_prompt = build_auditor_prompt(
+                            ctx["fields"], ctx["classification"],
+                            ctx["ocr_text"], ctx["vision_fields"]
+                        )
+
+                    auditor_system = cfg_auditor["system_prompt"] if cfg_auditor["system_prompt"] else AUDITOR_SYSTEM_PROMPT
+                    audit_resp = _ollama_generate(
+                        model=text_model,
+                        prompt=audit_prompt,
+                        image_b64=img_b64,              # ← IMAGEN incluida
+                        system=auditor_system,
+                        timeout=cfg_auditor["timeout"],
+                        temperature=cfg_auditor["temperature"],
+                        max_tokens=cfg_auditor["max_tokens"]
+                    )
+                    audit_data = _parse_json_response(audit_resp)
+                    if audit_data:
+                        # Agregar anomalías detectadas por LLM
+                        for anomalia in audit_data.get("anomalias", []):
+                            if anomalia and isinstance(anomalia, str):
+                                excepciones.append({"tipo": "ANOMALIA_IA", "mensaje": anomalia})
+                                requiere_revision = True
+                        # Agregar campos faltantes detectados por LLM
+                        for campo in audit_data.get("campos_faltantes", []):
+                            if campo and isinstance(campo, str):
+                                excepciones.append({"tipo": "CAMPO_FALTANTE_IA", "mensaje": f"Campo no detectado: {campo}"})
+                        # Actualizar requiere_revision si el auditor IA lo indica
+                        if audit_data.get("requiere_revision_manual"):
+                            requiere_revision = True
+                except Exception as e:
+                    logger.debug(f"Audit LLM error: {e}")
 
             ctx["audit"] = {
                 "hash": file_hash,
@@ -984,7 +1268,7 @@ class DocumentPipelineAgent:
             }
 
             yield self._emit("audit", "done", {
-                "title": "Auditoría completada",
+                "title": "Agente Auditor completado",
                 "message": (f"{len(excepciones)} alertas encontradas"
                             if excepciones else "Sin alertas — documento válido"),
                 "excepciones": excepciones,
@@ -1036,13 +1320,10 @@ class DocumentPipelineAgent:
 
         except Exception as e:
             logger.error(f"Save error: {e}")
-            # Si es un error de duplicado (UNIQUE constraint), devolver el documento existente
             err_str = str(e)
             if "UNIQUE constraint" in err_str and "hash_documento" in err_str:
-                # Buscar el documento existente por hash
                 try:
                     from models import Documento as DocModel
-                    # Rollback the failed transaction before querying
                     self.db.rollback()
                     file_hash = ctx.get("audit", {}).get("hash", "")
                     existing = None
@@ -1078,7 +1359,7 @@ class DocumentPipelineAgent:
 
     def _save_document(self, doc_id: str, file_path: str,
                        original_filename: str, ctx: Dict):
-        """Guarda el documento en la base de datos con los campos correctos del modelo."""
+        """Guarda el documento en la base de datos."""
         from models import (Documento, TipoDocumento, EstadoRevision)
 
         fields = ctx["fields"]
@@ -1088,7 +1369,7 @@ class DocumentPipelineAgent:
         # Tipo de documento
         tipo_str = str(fields.get("tipo_documento", "OTRO")).upper()
         tipo_str = re.sub(r'\s+', '_', tipo_str)
-        tipo_str = re.sub(r'[ÁÉÍÓÚ]', lambda m: {'Á':'A','É':'E','Í':'I','Ó':'O','Ú':'U'}.get(m.group(), m.group()), tipo_str)
+        tipo_str = re.sub(r'[ÁÉÍÓÚ]', lambda m: {'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U'}.get(m.group(), m.group()), tipo_str)
         tipo_map = {
             "FACTURA": TipoDocumento.FACTURA,
             "FACTURA_ELECTRONICA": TipoDocumento.FACTURA,
@@ -1128,7 +1409,7 @@ class DocumentPipelineAgent:
                   if audit.get("requiere_revision", True)
                   else EstadoRevision.REVISADO)
 
-        # Hash único — si ya existe, usar un hash diferente para evitar conflicto
+        # Hash único
         file_hash = audit.get("hash", "")
         if not file_hash:
             file_hash = str(uuid.uuid4()).replace("-", "")

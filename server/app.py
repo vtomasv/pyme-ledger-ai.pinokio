@@ -775,58 +775,63 @@ DEFAULT_AGENTS = [
     {
         "id": "ocr",
         "nombre": "Agente OCR",
-        "descripcion": "Extrae texto de imágenes y PDFs usando Tesseract y EasyOCR",
+        "descripcion": "Extrae texto de imágenes y PDFs usando Tesseract multi-PSM con preprocesamiento adaptativo. No usa LLM — produce el texto bruto que alimenta a todos los agentes siguientes.",
         "icono": "🔍",
         "tipo": "ocr",
         "modelo": "tesseract",
         "contexto": "por_documento",
         "prompt": "",
+        "system_prompt": "",
         "parametros": {
             "psm": 6,
             "lang": "spa+eng",
             "dpi": 300,
-            "enhance_contrast": True
+            "enhance_contrast": True,
+            "multi_psm": True
         }
     },
     {
         "id": "vision",
         "nombre": "Agente Visual",
-        "descripcion": "Analiza visualmente el documento con IA para extraer campos adicionales",
+        "descripcion": "Analiza visualmente la imagen del documento con motor IA. Recibe la IMAGEN + texto OCR del paso anterior para complementar y corregir la extracción. Contexto: por_documento (se limpia en cada lectura).",
         "icono": "👁",
         "tipo": "vision",
-        "modelo": "moondream",
+        "modelo": "qwen3.5:0.8b",
         "contexto": "por_documento",
-        "prompt": "Analyze this document image and extract all visible information including: document type, provider name, RUT/tax ID, date, invoice number, amounts (net, tax, total), currency. Return as JSON.",
+        "prompt": "",
+        "system_prompt": "Eres el Agente Visual, un experto en análisis de documentos contables latinoamericanos. Tu rol es analizar visualmente la imagen del documento y extraer TODA la información visible. Eres el segundo agente en el pipeline — ya tienes el texto extraído por OCR del paso anterior. Debes complementar y corregir el OCR con lo que ves directamente en la imagen. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
         "parametros": {
-            "timeout": 120,
+            "timeout": 180,
             "temperature": 0.1,
-            "max_tokens": 512
+            "max_tokens": 800
         }
     },
     {
         "id": "extractor",
         "nombre": "Agente Extractor",
-        "descripcion": "Extrae campos estructurados del texto usando IA y expresiones regulares",
+        "descripcion": "Consolida campos estructurados a partir de OCR + Agente Visual. Recibe la IMAGEN + texto OCR + campos visuales. Usa IA + regex para máxima cobertura. Contexto: por_documento.",
         "icono": "🧠",
         "tipo": "extractor",
         "modelo": "qwen3.5:0.8b",
         "contexto": "por_documento",
-        "prompt": "Eres un experto contable latinoamericano. Analiza el siguiente texto extraído de un documento contable y extrae los campos en formato JSON.\n\nTEXTO DEL DOCUMENTO:\n{text}\n\nExtrae EXACTAMENTE estos campos (usa null si no encuentras el valor):\n{{\n  \"tipo_documento\": \"FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO\",\n  \"proveedor\": \"nombre del emisor/vendedor\",\n  \"rut_proveedor\": \"RUT o RUC del emisor (ej: 77194706-9)\",\n  \"fecha_emision\": \"YYYY-MM-DD\",\n  \"folio\": \"número de documento/folio\",\n  \"descripcion\": \"descripción del producto o servicio\",\n  \"monto_neto\": numero sin IVA (solo número, sin símbolos),\n  \"iva\": monto del IVA (solo número),\n  \"monto_total\": monto total (solo número),\n  \"moneda\": \"CLP|USD|EUR|PEN|MXN|ARS\"\n}}\n\nResponde SOLO con el JSON, sin explicaciones.",
+        "prompt": "",
+        "system_prompt": "Eres el Agente Extractor, un contador experto en documentos contables latinoamericanos. Tu rol es extraer campos estructurados del documento con máxima precisión. Eres el tercer agente en el pipeline — tienes el texto OCR y los campos detectados por el Agente Visual. Debes consolidar y completar la información, priorizando los valores más confiables. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
         "parametros": {
-            "timeout": 90,
+            "timeout": 120,
             "temperature": 0.1,
-            "max_tokens": 512
+            "max_tokens": 600
         }
     },
     {
         "id": "clasificador",
         "nombre": "Agente Clasificador",
-        "descripcion": "Clasifica el gasto en categorías contables usando IA y palabras clave",
+        "descripcion": "Determina la categoría contable del gasto usando todos los campos extraídos por los agentes anteriores + texto completo del documento. Contexto: por_documento.",
         "icono": "🏷",
         "tipo": "clasificador",
         "modelo": "qwen3.5:0.8b",
         "contexto": "por_documento",
-        "prompt": "Eres un contador experto. Clasifica este gasto empresarial en la categoría contable más apropiada.\n\nINFORMACION DEL GASTO:\n- Proveedor: {proveedor}\n- Descripción: {descripcion}\n- Tipo documento: {tipo_documento}\n- Monto: {monto_total} {moneda}\n\nCATEGORÍAS DISPONIBLES:\n{categorias}\n\nResponde en JSON:\n{{\n  \"categoria\": \"nombre exacto de la categoría\",\n  \"confianza\": 0.0 a 1.0,\n  \"razon\": \"explicación breve de por qué esta categoría\"\n}}\n\nResponde SOLO con el JSON.",
+        "prompt": "",
+        "system_prompt": "Eres el Agente Clasificador, un contador experto en categorización de gastos empresariales. Tu rol es determinar la categoría contable más apropiada para este gasto. Tienes acceso a TODA la información extraída por los agentes anteriores. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
         "parametros": {
             "timeout": 60,
             "temperature": 0.1,
@@ -836,28 +841,33 @@ DEFAULT_AGENTS = [
     {
         "id": "auditor",
         "nombre": "Agente Auditor",
-        "descripcion": "Detecta duplicados, anomalías y valida la coherencia del documento",
+        "descripcion": "Valida coherencia del documento, detecta duplicados y anomalías. Recibe TODOS los campos + clasificación + imagen. Usa reglas + IA para detección semántica. Contexto: por_documento.",
         "icono": "🛡",
         "tipo": "auditor",
-        "modelo": "reglas",
+        "modelo": "qwen3.5:0.8b",
         "contexto": "por_documento",
         "prompt": "",
+        "system_prompt": "Eres el Agente Auditor, un experto en control interno y detección de anomalías contables. Tu rol es validar la coherencia del documento y detectar problemas. Tienes acceso a TODA la información del pipeline: OCR, visión, extracción y clasificación. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
         "parametros": {
             "check_duplicates": True,
             "check_amounts": True,
             "check_dates": True,
-            "similarity_threshold": 0.85
+            "similarity_threshold": 0.85,
+            "timeout": 90,
+            "temperature": 0.1,
+            "max_tokens": 512
         }
     },
     {
         "id": "recomendador",
         "nombre": "Agente Recomendador",
-        "descripcion": "Analiza el historial de gastos y genera recomendaciones de optimización",
+        "descripcion": "Analiza el historial de gastos y genera recomendaciones de optimización. Contexto: historial_mensual — acumula memoria del mes y compacta al cambiar de mes para mantener resumen histórico.",
         "icono": "💡",
         "tipo": "recomendador",
         "modelo": "qwen3.5:0.8b",
         "contexto": "historial_mensual",
-        "prompt": "Eres un asesor financiero experto en PYMEs latinoamericanas. Analiza el siguiente resumen de gastos del mes y genera recomendaciones concretas de optimización.\n\nRESUMEN DE GASTOS:\n{resumen}\n\nGira de la empresa: {giro}\n\nGenera 3-5 recomendaciones priorizadas en JSON:\n[{{\"titulo\": \"...\", \"descripcion\": \"...\", \"ahorro_estimado\": \"...\", \"prioridad\": \"alta|media|baja\"}}]",
+        "prompt": "",
+        "system_prompt": "Eres el Agente Recomendador, un asesor financiero experto en PYMEs latinoamericanas. Tienes acceso al historial de gastos del mes actual y resúmenes compactados de meses anteriores. Tu rol es detectar patrones, gastos recurrentes, anomalías entre meses y generar recomendaciones concretas de optimización. Cuando el mes cambia, el historial se compacta en un resumen que se preserva indefinidamente. Responde SOLO con JSON válido.",
         "parametros": {
             "timeout": 120,
             "temperature": 0.3,
