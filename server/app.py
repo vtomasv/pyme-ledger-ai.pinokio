@@ -768,6 +768,211 @@ async def download_document(doc_id: str):
 
 
 # ============================================================
+# Endpoints: Reprocesar documento
+# ============================================================
+
+@app.post("/api/empresas/{empresa_id}/documentos/{doc_id}/reprocess")
+async def reprocess_document(empresa_id: str, doc_id: str):
+    """Reprocesa un documento existente a través del pipeline completo."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Documento).filter(
+            Documento.id == doc_id,
+            Documento.empresa_id == empresa_id
+        ).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        if not doc.ruta_archivo_original:
+            raise HTTPException(status_code=400, detail="El documento no tiene archivo original")
+        file_path = Path(doc.ruta_archivo_original)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Archivo original no encontrado en disco")
+        return {
+            "ok": True,
+            "file_name": file_path.name,
+            "original_filename": doc.proveedor or file_path.name,
+            "doc_id": doc_id
+        }
+    finally:
+        db.close()
+
+
+@app.delete("/api/empresas/{empresa_id}/documentos/{doc_id}")
+async def delete_document(empresa_id: str, doc_id: str, delete_file: bool = False):
+    """Elimina un documento de la base de datos (y opcionalmente el archivo)."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Documento).filter(
+            Documento.id == doc_id,
+            Documento.empresa_id == empresa_id
+        ).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+        file_path = doc.ruta_archivo_original
+        db.delete(doc)
+        db.commit()
+        if delete_file and file_path:
+            try:
+                Path(file_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        return {"ok": True, "deleted_id": doc_id}
+    finally:
+        db.close()
+
+
+# ============================================================
+# Endpoint: Chat con el Asistente IA (Ledger AI)
+# ============================================================
+
+class ChatMessage(BaseModel):
+    message: str
+    empresa_id: Optional[str] = None
+    period_days: int = 90
+
+
+@app.post("/api/chat")
+async def chat_with_assistant(msg: ChatMessage):
+    """Chat con el Asistente Ledger AI. Responde preguntas sobre gastos y genera datos para gráficos."""
+    import requests as _req
+
+    db = SessionLocal()
+    try:
+        context_data = {}
+        docs_summary = []
+
+        if msg.empresa_id:
+            from datetime import timedelta
+            from models import CategoriaContable
+            start_date = datetime.utcnow() - timedelta(days=msg.period_days)
+            docs = db.query(Documento).filter(
+                Documento.empresa_id == msg.empresa_id,
+                Documento.fecha_creacion >= start_date
+            ).all()
+
+            # Construir resumen de gastos para el contexto
+            total = sum(d.monto_total or 0 for d in docs)
+            by_cat: dict = {}
+            by_prov: dict = {}
+            by_month: dict = {}
+            for d in docs:
+                cat = d.categoria_sugerida or "Sin categoría"
+                by_cat[cat] = by_cat.get(cat, 0) + (d.monto_total or 0)
+                prov = d.proveedor or "Desconocido"
+                by_prov[prov] = by_prov.get(prov, 0) + (d.monto_total or 0)
+                if d.fecha_emision:
+                    mes = d.fecha_emision.strftime("%Y-%m")
+                    by_month[mes] = by_month.get(mes, 0) + (d.monto_total or 0)
+
+            context_data = {
+                "total_documentos": len(docs),
+                "total_gasto": round(total, 2),
+                "periodo_dias": msg.period_days,
+                "por_categoria": dict(sorted(by_cat.items(), key=lambda x: x[1], reverse=True)[:10]),
+                "por_proveedor": dict(sorted(by_prov.items(), key=lambda x: x[1], reverse=True)[:10]),
+                "por_mes": dict(sorted(by_month.items())),
+                "pendientes": len([d for d in docs if d.estado_revision and d.estado_revision.value == "Pendiente"]),
+                "aprobados": len([d for d in docs if d.estado_revision and d.estado_revision.value == "Aprobado"]),
+                "rechazados": len([d for d in docs if d.estado_revision and d.estado_revision.value == "Rechazado"]),
+            }
+
+        # Intentar respuesta con LLM
+        agents_file = DATA_DIR / "agents_config.json"
+        llm_model = "llama3.2:3b"
+        if agents_file.exists():
+            try:
+                agents = json.loads(agents_file.read_text())
+                rec = next((a for a in agents if a["id"] == "recomendador"), None)
+                if rec:
+                    llm_model = rec.get("modelo", llm_model)
+            except Exception:
+                pass
+
+        system_prompt = """Eres Ledger AI, un asistente contable experto en gastos empresariales de PYMEs latinoamericanas.
+Tienes acceso a los datos reales de gastos de la empresa.
+Puedes responder preguntas sobre montos, categorías, proveedores, tendencias y recomendaciones.
+Cuando el usuario pida un gráfico o visualización, responde con un JSON especial:
+{
+  "type": "chart",
+  "chart_type": "bar|pie|line",
+  "title": "título del gráfico",
+  "labels": ["label1", "label2"],
+  "data": [valor1, valor2],
+  "text": "explicación del gráfico"
+}
+Para respuestas normales, responde con:
+{
+  "type": "text",
+  "text": "tu respuesta aquí"
+}
+Sé conciso, profesional y útil. Usa los datos reales del contexto."""
+
+        user_prompt = f"""Datos actuales de la empresa (últimos {msg.period_days} días):
+{json.dumps(context_data, ensure_ascii=False, indent=2)}
+
+Pregunta del usuario: {msg.message}"""
+
+        try:
+            r = _req.post(
+                f"{os.environ.get('OLLAMA_URL', 'http://localhost:11434')}/api/generate",
+                json={
+                    "model": llm_model,
+                    "prompt": user_prompt,
+                    "system": system_prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3, "num_predict": 1024}
+                },
+                timeout=60
+            )
+            if r.status_code == 200:
+                raw = r.json().get("response", "").strip()
+                # Limpiar thinking tags
+                import re as _re
+                raw = _re.sub(r'<think>[\s\S]*?</think>', '', raw, flags=_re.IGNORECASE).strip()
+                # Intentar parsear JSON
+                try:
+                    # Buscar JSON en la respuesta
+                    json_match = _re.search(r'\{[\s\S]*\}', raw)
+                    if json_match:
+                        parsed = json.loads(json_match.group())
+                        return {"ok": True, "response": parsed, "context": context_data}
+                except Exception:
+                    pass
+                return {"ok": True, "response": {"type": "text", "text": raw}, "context": context_data}
+        except Exception as e:
+            pass
+
+        # Fallback: respuesta basada en datos sin LLM
+        if context_data:
+            msg_lower = msg.message.lower()
+            if any(w in msg_lower for w in ["gráfico", "grafico", "chart", "visual", "categor"]):
+                return {"ok": True, "response": {
+                    "type": "chart",
+                    "chart_type": "pie",
+                    "title": "Gastos por Categoría",
+                    "labels": list(context_data["por_categoria"].keys()),
+                    "data": list(context_data["por_categoria"].values()),
+                    "text": f"Distribución de {context_data['total_documentos']} documentos por categoría."
+                }, "context": context_data}
+            elif any(w in msg_lower for w in ["total", "monto", "gasto"]):
+                return {"ok": True, "response": {
+                    "type": "text",
+                    "text": f"El total de gastos en los últimos {msg.period_days} días es ${context_data['total_gasto']:,.0f} en {context_data['total_documentos']} documentos."
+                }, "context": context_data}
+            elif any(w in msg_lower for w in ["proveedor", "quien", "quién"]):
+                top = list(context_data["por_proveedor"].items())[:3]
+                txt = "Top proveedores: " + ", ".join(f"{p}: ${v:,.0f}" for p, v in top)
+                return {"ok": True, "response": {"type": "text", "text": txt}, "context": context_data}
+
+        return {"ok": True, "response": {
+            "type": "text",
+            "text": "El motor IA no está disponible en este momento. Asegúrate de que Ollama esté corriendo con el modelo configurado."
+        }, "context": context_data}
+    finally:
+        db.close()
+
+
+# ============================================================
 # Endpoints: Configuración de Agentes IA
 # ============================================================
 
@@ -825,53 +1030,53 @@ DEFAULT_AGENTS = [
     {
         "id": "clasificador",
         "nombre": "Agente Clasificador",
-        "descripcion": "Determina la categoría contable del gasto usando todos los campos extraídos por los agentes anteriores + texto completo del documento. Contexto: por_documento.",
+        "descripcion": "Determina la categoría contable del gasto usando todos los campos extraídos por los agentes anteriores + texto completo del documento. Usa llama3.2 optimizado para razonamiento estructurado. Contexto: por_documento.",
         "icono": "🏷",
         "tipo": "clasificador",
-        "modelo": "qwen3.5:0.8b",
+        "modelo": "llama3.2:3b",
         "contexto": "por_documento",
         "prompt": "",
-        "system_prompt": "Eres el Agente Clasificador, un contador experto en categorización de gastos empresariales. Tu rol es determinar la categoría contable más apropiada para este gasto. Tienes acceso a TODA la información extraída por los agentes anteriores. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
+        "system_prompt": "Eres el Agente Clasificador, un contador experto en categorización de gastos empresariales latinoamericanos. Tu rol es determinar la categoría contable más apropiada para este gasto. Tienes acceso a TODA la información extraída por los agentes anteriores (OCR, análisis visual, extracción de campos). Analiza el proveedor, descripción, monto y tipo de documento para determinar la categoría correcta. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
         "parametros": {
-            "timeout": 60,
-            "temperature": 0.1,
-            "max_tokens": 256
+            "timeout": 90,
+            "temperature": 0.05,
+            "max_tokens": 512
         }
     },
     {
         "id": "auditor",
         "nombre": "Agente Auditor",
-        "descripcion": "Valida coherencia del documento, detecta duplicados y anomalías. Recibe TODOS los campos + clasificación + imagen. Usa reglas + IA para detección semántica. Contexto: por_documento.",
+        "descripcion": "Valida coherencia del documento, detecta duplicados y anomalías. Recibe TODOS los campos + clasificación + imagen. Usa llama3.2 para razonamiento lógico y detección semántica. Contexto: por_documento.",
         "icono": "🛡",
         "tipo": "auditor",
-        "modelo": "qwen3.5:0.8b",
+        "modelo": "llama3.2:3b",
         "contexto": "por_documento",
         "prompt": "",
-        "system_prompt": "Eres el Agente Auditor, un experto en control interno y detección de anomalías contables. Tu rol es validar la coherencia del documento y detectar problemas. Tienes acceso a TODA la información del pipeline: OCR, visión, extracción y clasificación. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
+        "system_prompt": "Eres el Agente Auditor, un experto en control interno y detección de anomalías contables. Tu rol es validar la coherencia del documento y detectar problemas. Tienes acceso a TODA la información del pipeline: OCR, visión, extracción y clasificación. Verifica: coherencia de montos (neto + IVA = total), fechas razonables, proveedor legítimo, campos críticos presentes. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
         "parametros": {
             "check_duplicates": True,
             "check_amounts": True,
             "check_dates": True,
             "similarity_threshold": 0.85,
-            "timeout": 90,
-            "temperature": 0.1,
-            "max_tokens": 512
+            "timeout": 120,
+            "temperature": 0.05,
+            "max_tokens": 1024
         }
     },
     {
         "id": "recomendador",
         "nombre": "Agente Recomendador",
-        "descripcion": "Analiza el historial de gastos y genera recomendaciones de optimización. Contexto: historial_mensual — acumula memoria del mes y compacta al cambiar de mes para mantener resumen histórico.",
+        "descripcion": "Analiza el historial de gastos y genera recomendaciones de optimización. Usa llama3.2 con historial mensual compactado. Contexto: historial_mensual — acumula memoria del mes y compacta al cambiar de mes.",
         "icono": "💡",
         "tipo": "recomendador",
-        "modelo": "qwen3.5:0.8b",
+        "modelo": "llama3.2:3b",
         "contexto": "historial_mensual",
         "prompt": "",
-        "system_prompt": "Eres el Agente Recomendador, un asesor financiero experto en PYMEs latinoamericanas. Tienes acceso al historial de gastos del mes actual y resúmenes compactados de meses anteriores. Tu rol es detectar patrones, gastos recurrentes, anomalías entre meses y generar recomendaciones concretas de optimización. Cuando el mes cambia, el historial se compacta en un resumen que se preserva indefinidamente. Responde SOLO con JSON válido.",
+        "system_prompt": "Eres el Agente Recomendador, un asesor financiero experto en PYMEs latinoamericanas. Tienes acceso al historial de gastos del mes actual y resúmenes compactados de meses anteriores. Tu rol es: (1) detectar patrones de gasto recurrentes, (2) identificar gastos anómalos o duplicados entre meses, (3) sugerir optimizaciones concretas con impacto estimado en dinero, (4) alertar sobre gastos que no corresponden al giro de la empresa. Cuando el mes cambia, el historial se compacta en un resumen que se preserva indefinidamente para comparaciones históricas. Responde SOLO con JSON válido.",
         "parametros": {
-            "timeout": 120,
-            "temperature": 0.3,
-            "max_tokens": 1024,
+            "timeout": 180,
+            "temperature": 0.2,
+            "max_tokens": 2048,
             "historial_meses": 3,
             "compactar_despues_de": 1
         }

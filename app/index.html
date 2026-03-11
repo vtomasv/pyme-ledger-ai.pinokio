@@ -575,6 +575,128 @@ a:hover { text-decoration: underline; }
 .dfr-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
 .dfr-value { font-size: 13px; font-weight: 700; }
 .dfr-value.empty { color: var(--text3); font-weight: 400; font-style: italic; }
+
+/* ── Editable field row ────────────────────────────────────── */
+.dfr-editable { position: relative; }
+.dfr-edit-btn {
+  position: absolute; top: 7px; right: 8px;
+  background: none; border: none;
+  color: var(--text3); font-size: 11px;
+  cursor: pointer; opacity: 0;
+  transition: opacity .15s;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.dfr-editable:hover .dfr-edit-btn { opacity: 1; }
+.dfr-edit-btn:hover { color: var(--accent2); background: rgba(91,141,238,.1); }
+.dfr-edit-input {
+  width: 100%; background: var(--bg2);
+  border: 1px solid var(--accent);
+  color: var(--text); padding: 5px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 13px; font-weight: 700;
+  margin-top: 3px;
+}
+
+/* ── Drag-and-drop detected fields ───────────────────────── */
+.detected-fields-panel {
+  margin-top: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+.detected-fields-title {
+  font-size: 9px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: .07em;
+  margin-bottom: 8px;
+}
+.detected-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px;
+  background: rgba(91,141,238,.1);
+  border: 1px solid rgba(91,141,238,.25);
+  border-radius: 20px;
+  font-size: 11px; color: var(--accent2);
+  cursor: grab; margin: 3px;
+  transition: all .12s;
+  user-select: none;
+}
+.detected-chip:hover { background: rgba(91,141,238,.2); transform: scale(1.03); }
+.detected-chip.dragging { opacity: .5; cursor: grabbing; }
+.dfr.drop-target { border-color: var(--accent); background: rgba(91,141,238,.08); }
+
+/* ── PDF embed ──────────────────────────────────────────────── */
+.pdf-embed-wrap {
+  width: 100%; height: 380px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg3);
+}
+.pdf-embed-wrap iframe, .pdf-embed-wrap embed {
+  width: 100%; height: 100%;
+  border: none;
+}
+
+/* ── Agent results accordion ───────────────────────────────── */
+.agent-results-panel {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.agent-result-item {
+  border-bottom: 1px solid var(--border);
+}
+.agent-result-item:last-child { border-bottom: none; }
+.agent-result-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  background: var(--bg3);
+  cursor: pointer;
+  font-size: 12px; font-weight: 600;
+  transition: background .12s;
+}
+.agent-result-header:hover { background: var(--bg4); }
+.agent-result-header .ari-icon { font-size: 14px; }
+.agent-result-header .ari-status {
+  margin-left: auto;
+  font-size: 10px; font-weight: 400;
+  color: var(--text3);
+}
+.agent-result-header .ari-status.ok { color: var(--green); }
+.agent-result-header .ari-status.warn { color: var(--yellow); }
+.agent-result-header .ari-status.err { color: var(--red); }
+.agent-result-body {
+  padding: 10px 12px;
+  background: var(--bg2);
+  font-size: 11px; color: var(--text2);
+  line-height: 1.7;
+  display: none;
+}
+.agent-result-body.open { display: block; }
+.agent-result-body pre {
+  font-size: 10px; font-family: monospace;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 150px; overflow-y: auto;
+  background: var(--bg3); padding: 8px;
+  border-radius: 4px; margin-top: 6px;
+}
+
+/* ── Chat chart ───────────────────────────────────────────────── */
+.asst-chart-wrap {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  margin-top: 6px;
+}
+.asst-chart-title {
+  font-size: 10px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: .06em;
+  margin-bottom: 6px;
+}
+.asst-chart-wrap canvas { max-height: 160px; }
 .ocr-panel {
   margin-top: 14px;
   background: var(--bg3);
@@ -1234,6 +1356,55 @@ function addAsstMsg(text, type = 'bot') {
   el.scrollTop = el.scrollHeight;
 }
 
+// Chart counter for unique canvas IDs
+let _chartCounter = 0;
+
+function addAsstChart(chartData) {
+  const el = document.getElementById('asstMsgs');
+  const chartId = `asst-chart-${++_chartCounter}`;
+  const div = document.createElement('div');
+  div.className = 'asst-msg';
+  div.innerHTML = `
+    <div class="asst-chart-wrap">
+      <div class="asst-chart-title">${escHtml(chartData.title || 'Gráfico')}</div>
+      <canvas id="${chartId}"></canvas>
+      ${chartData.text ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">${escHtml(chartData.text)}</div>` : ''}
+    </div>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  // Render chart
+  setTimeout(() => {
+    const ctx = document.getElementById(chartId);
+    if (!ctx || !window.Chart) return;
+    const type = chartData.chart_type || 'bar';
+    const colors = ['#5b8dee','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#38bdf8','#4ade80'];
+    new Chart(ctx, {
+      type: type === 'pie' ? 'doughnut' : type,
+      data: {
+        labels: chartData.labels || [],
+        datasets: [{
+          data: chartData.data || [],
+          backgroundColor: colors.slice(0, (chartData.labels||[]).length),
+          borderColor: 'transparent',
+          borderWidth: 0,
+          tension: 0.4,
+          fill: type === 'line' ? 'origin' : undefined,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: type === 'pie' || type === 'doughnut', labels: { color: '#94a3b8', font: { size: 10 } } },
+        },
+        scales: type !== 'pie' && type !== 'doughnut' ? {
+          x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+          y: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.04)' } }
+        } : {}
+      }
+    });
+  }, 100);
+}
+
 async function sendAssistantMsg() {
   const input = document.getElementById('asstInput');
   const text = input.value.trim();
@@ -1241,35 +1412,56 @@ async function sendAssistantMsg() {
   input.value = '';
   addAsstMsg(text, 'user');
 
-  // Respuestas contextuales simples (sin llamada a LLM para rapidez)
-  const lower = text.toLowerCase();
-  let resp = '';
+  // Show typing indicator
+  const typingId = 'asst-typing-' + Date.now();
+  const el = document.getElementById('asstMsgs');
+  const typingDiv = document.createElement('div');
+  typingDiv.id = typingId;
+  typingDiv.className = 'asst-msg';
+  typingDiv.innerHTML = '<span style="color:var(--text3);font-size:11px">Pensando...</span>';
+  el.appendChild(typingDiv);
+  el.scrollTop = el.scrollHeight;
 
-  if (lower.includes('hola') || lower.includes('ayuda')) {
-    resp = 'Puedo ayudarte a:\n• Procesar documentos (facturas, boletas)\n• Clasificar gastos automáticamente\n• Analizar tendencias de gasto\n• Exportar reportes contables\n\n¿Qué necesitas?';
-  } else if (lower.includes('subir') || lower.includes('documento') || lower.includes('factura') || lower.includes('boleta')) {
-    resp = 'Para subir un documento, ve a "Nuevo Gasto" en el menú. El pipeline IA procesará automáticamente:\n1. OCR — extrae el texto\n2. Extracción — identifica campos\n3. Clasificación — asigna categoría\n4. Auditoría — detecta duplicados';
-    showSection('nuevo-gasto');
-  } else if (lower.includes('categor')) {
-    resp = `Tienes ${state.categorias.length} categorías configuradas: ${state.categorias.slice(0,5).map(c=>c.nombre).join(', ')}${state.categorias.length > 5 ? '...' : ''}.\n\nPuedes agregar más en Administración.`;
-  } else if (lower.includes('export') || lower.includes('reporte')) {
-    resp = 'Puedes exportar tus datos desde el botón "Exportar" en la barra superior, o desde la sección Documentos. Formatos disponibles: CSV, PDF.';
-  } else if (lower.includes('empresa')) {
-    resp = state.empresa
-      ? `Empresa activa: ${state.empresa.razon_social}\nRUT: ${state.empresa.rut || '—'}\nGiro: ${state.empresa.giro || '—'}\n\nPuedes cambiar la empresa activa en Administración.`
-      : 'No tienes empresa configurada. Ve a Administración para crear una.';
-  } else if (lower.includes('dashboard') || lower.includes('resumen')) {
-    resp = 'El dashboard muestra tus KPIs principales: total de gastos, documentos pendientes, categorías y alertas. ¿Quieres ir al dashboard?';
-    showSection('dashboard');
-  } else if (lower.includes('ollama') || lower.includes('modelo') || lower.includes('ia')) {
-    resp = state.ollamaOnline
-      ? 'El motor IA está activo. Todo el procesamiento es 100% local y offline.'
-      : 'El motor IA no está detectado. Asegúrate de que Ollama esté corriendo. Puedes verificarlo en Agentes IA.';
-  } else {
-    resp = 'Entendido. Puedo ayudarte con documentos, categorías, análisis de gastos y configuración. ¿Qué necesitas específicamente?';
+  try {
+    const r = await fetch(`${API}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        empresa_id: state.empresa?.id || null,
+        period_days: 90
+      })
+    });
+    const d = await r.json();
+    document.getElementById(typingId)?.remove();
+
+    if (d.ok && d.response) {
+      const resp = d.response;
+      if (resp.type === 'chart') {
+        if (resp.text) addAsstMsg(resp.text);
+        addAsstChart(resp);
+      } else {
+        addAsstMsg(resp.text || 'Respuesta recibida.');
+      }
+    } else {
+      addAsstMsg('No pude obtener una respuesta. Verifica que el motor IA esté activo.', 'error');
+    }
+  } catch(e) {
+    document.getElementById(typingId)?.remove();
+    // Fallback: respuesta local básica
+    const lower = text.toLowerCase();
+    let resp = '';
+    if (lower.includes('hola') || lower.includes('ayuda')) {
+      resp = 'Puedo ayudarte con:\n• Consultas sobre gastos y montos\n• Gráficos de categorías y tendencias\n• Análisis de proveedores\n• Estado de documentos\n\nEscribe tu pregunta en lenguaje natural.';
+    } else if (lower.includes('empresa')) {
+      resp = state.empresa
+        ? `Empresa activa: ${state.empresa.razon_social}\nRUT: ${state.empresa.rut || '—'}\nGiro: ${state.empresa.giro || '—'}`
+        : 'No tienes empresa configurada. Ve a Administración.';
+    } else {
+      resp = 'El motor IA no está disponible en este momento. Asegúrate de que Ollama esté corriendo con el modelo configurado.';
+    }
+    addAsstMsg(resp, 'error');
   }
-
-  setTimeout(() => addAsstMsg(resp), 400);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1566,15 +1758,21 @@ async function renderDashboard() {
 
 function renderKPIs(d) {
   const fmt = n => n ? '$' + Number(n).toLocaleString('es-CL') : '$0';
+  // El backend devuelve: d.kpis.total_gasto, d.kpis.cantidad_documentos, etc.
+  const kpis = d.kpis || d;
+  const totalGasto = kpis.total_gasto || kpis.total_gastos || 0;
+  const totalDocs = kpis.cantidad_documentos || kpis.total_documentos || 0;
+  const pendientes = kpis.documentos_pendiente_revision || kpis.pendientes_revision || 0;
+  const duplicados = kpis.documentos_duplicados || 0;
   document.getElementById('kpiGrid').innerHTML = `
     <div class="kpi-card">
       <div class="kpi-label">Total Gastos (30d)</div>
-      <div class="kpi-value" style="color:var(--accent2)">${fmt(d.total_gastos || 0)}</div>
-      <div class="kpi-sub">${d.total_documentos || 0} documentos</div>
+      <div class="kpi-value" style="color:var(--accent2)">${fmt(totalGasto)}</div>
+      <div class="kpi-sub">${totalDocs} documentos</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Pendientes</div>
-      <div class="kpi-value" style="color:var(--yellow)">${d.pendientes_revision || 0}</div>
+      <div class="kpi-value" style="color:var(--yellow)">${pendientes}</div>
       <div class="kpi-sub">Requieren revisión</div>
     </div>
     <div class="kpi-card">
@@ -1583,21 +1781,21 @@ function renderKPIs(d) {
       <div class="kpi-sub">Configuradas</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Alertas</div>
-      <div class="kpi-value" style="color:var(--red)">${d.total_alertas || 0}</div>
-      <div class="kpi-sub">Anomalías detectadas</div>
+      <div class="kpi-label">Duplicados</div>
+      <div class="kpi-value" style="color:var(--red)">${duplicados}</div>
+      <div class="kpi-sub">Detectados por IA</div>
     </div>
   `;
   const pb = document.getElementById('pendingBadge');
-  const pending = d.pendientes_revision || 0;
-  pb.textContent = pending;
-  pb.style.display = pending > 0 ? '' : 'none';
+  pb.textContent = pendientes;
+  pb.style.display = pendientes > 0 ? '' : 'none';
 }
 
 function renderCatChart(d) {
   const ctx = document.getElementById('chartCat');
   if (!ctx) return;
-  const items = d.por_categoria || [];
+  // Backend devuelve: d.categorias (array con {categoria, total, cantidad})
+  const items = d.categorias || d.por_categoria || [];
   if (state.charts.cat) state.charts.cat.destroy();
   state.charts.cat = new Chart(ctx, {
     type: 'doughnut',
@@ -1620,7 +1818,8 @@ function renderCatChart(d) {
 function renderTrendChart(d) {
   const ctx = document.getElementById('chartTrend');
   if (!ctx) return;
-  const items = d.tendencia_mensual || [];
+  // Backend devuelve: d.datos (array con {mes, total, cantidad})
+  const items = d.datos || d.tendencia_mensual || [];
   if (state.charts.trend) state.charts.trend.destroy();
   state.charts.trend = new Chart(ctx, {
     type: 'line',
@@ -1629,20 +1828,20 @@ function renderTrendChart(d) {
       datasets: [{
         label: 'Gastos',
         data: items.map(i => i.total || 0),
-        borderColor: '#5b8dee',
-        backgroundColor: 'rgba(91,141,238,.1)',
+        borderColor: '#34d399',
+        backgroundColor: 'rgba(52,211,153,.1)',
         fill: true,
         tension: 0.4,
-        pointBackgroundColor: '#5b8dee',
+        pointBackgroundColor: '#34d399',
         pointRadius: 4,
       }]
     },
     options: {
-      scales: {
-        x: { ticks: { color: '#4a5568', font: { size: 10 } }, grid: { color: '#141c2e' } },
-        y: { ticks: { color: '#4a5568', font: { size: 10 } }, grid: { color: '#141c2e' } },
-      },
       plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+        y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+      }
     }
   });
 }
@@ -2216,6 +2415,129 @@ function renderDocGrid(docs) {
   }).join('');
 }
 
+// ── Editable field helpers ─────────────────────────────────────────────────
+function makeEditableField(fieldKey, label, value, docId, isAmount = false) {
+  const displayVal = isAmount && value ? '$' + Number(value).toLocaleString('es-CL') : escHtml(value || '—');
+  const emptyClass = !value ? 'empty' : '';
+  return `
+    <div class="dfr dfr-editable" id="dfr_${fieldKey}"
+      ondragover="event.preventDefault();this.classList.add('drop-target')"
+      ondragleave="this.classList.remove('drop-target')"
+      ondrop="onDropToField(event,'${fieldKey}','${docId}')">
+      <div class="dfr-label">${label}</div>
+      <div class="dfr-value ${emptyClass}" id="dfrv_${fieldKey}">${displayVal}</div>
+      <button class="dfr-edit-btn" onclick="startEditField('${fieldKey}','${escHtml(value||'')}','${docId}')" title="Editar">✏️</button>
+    </div>`;
+}
+
+function startEditField(fieldKey, currentVal, docId) {
+  const valEl = document.getElementById(`dfrv_${fieldKey}`);
+  if (!valEl) return;
+  valEl.innerHTML = `
+    <input class="dfr-edit-input" id="edit_${fieldKey}" value="${escHtml(currentVal)}"
+      onkeydown="if(event.key==='Enter')saveEditField('${fieldKey}','${docId}');if(event.key==='Escape')cancelEditField('${fieldKey}','${escHtml(currentVal)}')" />
+    <div style="display:flex;gap:5px;margin-top:5px">
+      <button class="btn btn-success btn-sm" style="padding:3px 8px;font-size:10px" onclick="saveEditField('${fieldKey}','${docId}')">✓ Guardar</button>
+      <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:10px" onclick="cancelEditField('${fieldKey}','${escHtml(currentVal)}')">✕</button>
+    </div>`;
+  document.getElementById(`edit_${fieldKey}`)?.focus();
+}
+
+async function saveEditField(fieldKey, docId) {
+  const input = document.getElementById(`edit_${fieldKey}`);
+  if (!input) return;
+  const newVal = input.value.trim();
+  try {
+    await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [fieldKey]: newVal })
+    });
+    showToast(`${fieldKey} actualizado`, 'success');
+    // Refresh the modal
+    await openDocModal(docId);
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+function cancelEditField(fieldKey, originalVal) {
+  const valEl = document.getElementById(`dfrv_${fieldKey}`);
+  if (valEl) valEl.innerHTML = escHtml(originalVal || '—');
+}
+
+function onDropToField(event, targetField, docId) {
+  event.preventDefault();
+  const container = event.currentTarget;
+  container.classList.remove('drop-target');
+  const dragData = event.dataTransfer.getData('text/plain');
+  if (!dragData) return;
+  try {
+    const { value } = JSON.parse(dragData);
+    startEditField(targetField, value, docId);
+    // Pre-fill the input with the dragged value
+    setTimeout(() => {
+      const inp = document.getElementById(`edit_${targetField}`);
+      if (inp) inp.value = value;
+    }, 50);
+  } catch(e) { /* ignore */ }
+}
+
+async function deleteDocument(docId) {
+  if (!confirm('¿Eliminar este documento? Esta acción no se puede deshacer.')) return;
+  try {
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error('Error al eliminar');
+    showToast('Documento eliminado', 'success');
+    closeModal('docModal');
+    if (state.currentSection === 'documentos') await loadDocumentos();
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function reprocessDocument(docId) {
+  showToast('Reprocesando documento...', 'info');
+  closeModal('docModal');
+  try {
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}/reprocess`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok && d.file_name) {
+      showSection('nuevo-gasto');
+      setTimeout(() => {
+        // Simulate pipeline with the existing file
+        fetch(`${API}/api/empresas/${state.empresa.id}/process-stream?file_name=${d.file_name}&original_name=${encodeURIComponent(d.original_name || 'documento')}`, {
+          headers: { 'Accept': 'text/event-stream' }
+        }).then(resp => {
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          initPipelineUI(d.original_name || 'documento');
+          function read() {
+            reader.read().then(({ done, value }) => {
+              if (done) return;
+              const chunk = decoder.decode(value);
+              chunk.split('\n\n').forEach(line => {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const ev = JSON.parse(line.slice(6));
+                    handlePipelineEvent(ev);
+                  } catch(e) {}
+                }
+              });
+              read();
+            });
+          }
+          read();
+        });
+      }, 300);
+    } else {
+      showToast(d.error || 'No se pudo reprocesar', 'error');
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
 async function openDocModal(docId) {
   if (!docId) return;
   const modal = document.getElementById('docModal');
@@ -2226,10 +2548,58 @@ async function openDocModal(docId) {
   try {
     const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`);
     const doc = await r.json();
-    // Usar tipo_archivo devuelto por el servidor (ya calculado)
     const ext = (doc.tipo_archivo || doc.ruta_archivo_original || '').split('.').pop().toLowerCase();
     const isImg = ['jpg', 'jpeg', 'png', 'bmp', 'webp', 'tiff'].includes(ext);
     const isPdf = ext === 'pdf';
+
+    // Build detected fields chips for drag-and-drop
+    const allDetected = Object.entries(doc.campos_detectados || {}).filter(([k,v]) => v);
+    const detectedChips = allDetected.length > 0
+      ? `<div class="detected-fields-panel">
+          <div class="detected-fields-title">🔍 Campos detectados — arrastra a cualquier campo</div>
+          <div>${allDetected.map(([k,v]) =>
+            `<span class="detected-chip" draggable="true"
+              ondragstart="event.dataTransfer.setData('text/plain', JSON.stringify({key:'${escHtml(k)}',value:'${escHtml(String(v))}'}))">
+              <span style="color:var(--text3);font-size:9px">${escHtml(k)}</span>
+              ${escHtml(String(v))}
+            </span>`).join('')}</div>
+        </div>`
+      : '';
+
+    // Build agent results accordion
+    const agentResults = doc.agent_results || {};
+    const agentDefs = [
+      { id: 'ocr',            icon: '🔍', name: 'Agente OCR' },
+      { id: 'vision',         icon: '👁',  name: 'Agente Visual' },
+      { id: 'extraction',     icon: '🧠', name: 'Agente Extractor' },
+      { id: 'classification', icon: '🏷', name: 'Agente Clasificador' },
+      { id: 'audit',          icon: '🛡', name: 'Agente Auditor' },
+    ];
+    const agentAccordion = `
+      <div class="agent-results-panel">
+        ${agentDefs.map(a => {
+          const res = agentResults[a.id];
+          const hasData = res && (res.text || res.fields || res.categoria_sugerida || res.excepciones);
+          const statusCls = !hasData ? '' : (res.error ? 'err' : 'ok');
+          const statusTxt = !hasData ? 'Sin datos' : (res.error ? 'Error' : 'Completado ✓');
+          return `
+            <div class="agent-result-item">
+              <div class="agent-result-header" onclick="this.nextElementSibling.classList.toggle('open')">
+                <span class="ari-icon">${a.icon}</span>
+                <span>${a.name}</span>
+                <span class="ari-status ${statusCls}">${statusTxt}</span>
+              </div>
+              <div class="agent-result-body">
+                ${!hasData ? '<em>No hay datos de este agente para este documento.</em>' : ''}
+                ${res?.text ? `<div>${escHtml(res.text.substring(0, 500))}</div>` : ''}
+                ${res?.fields ? `<pre>${escHtml(JSON.stringify(res.fields, null, 2))}</pre>` : ''}
+                ${res?.categoria_sugerida ? `<div>Categoría: <strong>${escHtml(res.categoria_sugerida)}</strong> (${Math.round((res.confianza||0)*100)}%)</div>` : ''}
+                ${res?.excepciones?.length ? `<div style="color:var(--yellow)">${res.excepciones.map(e=>`⚠ ${escHtml(e.mensaje||String(e))}`).join('<br>')}</div>` : ''}
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`;
+
     body.innerHTML = `
       <div class="doc-detail-grid">
         <div>
@@ -2240,15 +2610,10 @@ async function openDocModal(docId) {
                   onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
                  <div class='no-preview' style='display:none'><div class='np-icon'>📄</div><div>Vista previa no disponible</div></div>`
               : isPdf
-              ? `<div style="position:relative">
-                  <img src="${API}/api/documentos/${docId}/preview"
-                    style="max-width:100%;max-height:380px;object-fit:contain;border-radius:6px"
-                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
-                  <div class='no-preview' style='display:none'>
-                    <div class='np-icon'>📄</div>
-                    <div style='font-size:12px;margin-bottom:10px'>Documento PDF</div>
-                    <a href='${API}/api/documentos/${docId}/download' class='btn btn-secondary btn-sm' download>⬇ Descargar</a>
-                  </div>
+              ? `<div class="pdf-embed-wrap">
+                  <iframe src="${API}/api/documentos/${docId}/download#toolbar=1&navpanes=0"
+                    title="PDF Viewer"
+                    onerror="this.parentElement.innerHTML='<div class=no-preview><div class=np-icon>📄</div><div style=font-size:12px;margin-bottom:10px>PDF no disponible en vista previa</div><a href=${API}/api/documentos/${docId}/download class=btn btn-secondary btn-sm download>⬇ Descargar</a></div>'"></iframe>
                 </div>`
               : `<div class="no-preview">
                   <div class="np-icon">📄</div>
@@ -2262,42 +2627,27 @@ async function openDocModal(docId) {
                 <pre>${escHtml(doc.texto_extraido)}</pre>
                </div>`
             : ''}
+          ${detectedChips}
+          ${agentAccordion}
         </div>
         <div class="doc-fields">
-          <div class="dfr">
-            <div class="dfr-label">Proveedor</div>
-            <div class="dfr-value ${!doc.proveedor ? 'empty' : ''}">${escHtml(doc.proveedor || '—')}</div>
-          </div>
-          <div class="dfr">
-            <div class="dfr-label">RUT Proveedor</div>
-            <div class="dfr-value ${!doc.rut_proveedor ? 'empty' : ''}">${escHtml(doc.rut_proveedor || '—')}</div>
-          </div>
-          <div class="dfr">
-            <div class="dfr-label">Fecha Emisión</div>
-            <div class="dfr-value ${!doc.fecha_emision ? 'empty' : ''}">${doc.fecha_emision ? doc.fecha_emision.split('T')[0] : '—'}</div>
-          </div>
-          <div class="dfr">
-            <div class="dfr-label">Folio / N°</div>
-            <div class="dfr-value ${!doc.folio ? 'empty' : ''}">${escHtml(doc.folio || '—')}</div>
-          </div>
-          <div class="dfr">
-            <div class="dfr-label">Monto Neto</div>
-            <div class="dfr-value">${doc.monto_neto ? '$' + Number(doc.monto_neto).toLocaleString('es-CL') : '—'}</div>
-          </div>
-          <div class="dfr">
-            <div class="dfr-label">IVA</div>
-            <div class="dfr-value">${doc.iva ? '$' + Number(doc.iva).toLocaleString('es-CL') : '—'}</div>
-          </div>
-          <div class="dfr">
+          ${makeEditableField('proveedor', 'Proveedor', doc.proveedor, docId)}
+          ${makeEditableField('rut_proveedor', 'RUT Proveedor', doc.rut_proveedor, docId)}
+          ${makeEditableField('fecha_emision', 'Fecha Emisión', doc.fecha_emision ? doc.fecha_emision.split('T')[0] : '', docId)}
+          ${makeEditableField('folio', 'Folio / N°', doc.folio, docId)}
+          ${makeEditableField('monto_neto', 'Monto Neto', doc.monto_neto, docId, true)}
+          ${makeEditableField('iva', 'IVA', doc.iva, docId, true)}
+          <div class="dfr dfr-editable" id="dfr_monto_total"
+            ondragover="event.preventDefault();this.classList.add('drop-target')"
+            ondragleave="this.classList.remove('drop-target')"
+            ondrop="onDropToField(event,'monto_total','${docId}')">
             <div class="dfr-label">Total</div>
-            <div class="dfr-value" style="color:var(--accent2);font-size:15px">
+            <div class="dfr-value" id="dfrv_monto_total" style="color:var(--accent2);font-size:15px">
               ${doc.monto_total ? '$' + Number(doc.monto_total).toLocaleString('es-CL') : '—'}
             </div>
+            <button class="dfr-edit-btn" onclick="startEditField('monto_total','${doc.monto_total||''}','${docId}')" title="Editar">✏️</button>
           </div>
-          <div class="dfr">
-            <div class="dfr-label">Tipo</div>
-            <div class="dfr-value">${escHtml(doc.tipo_documento || '—')}</div>
-          </div>
+          ${makeEditableField('tipo_documento', 'Tipo', doc.tipo_documento, docId)}
           <div class="dfr">
             <div class="dfr-label">Categoría</div>
             <select class="form-select" id="modalCatSel" style="margin-top:4px">
@@ -2325,6 +2675,8 @@ async function openDocModal(docId) {
       </div>
     `;
     footer.innerHTML = `
+      <button class="btn btn-danger btn-sm" onclick="deleteDocument('${docId}')" style="margin-right:auto" title="Eliminar documento">🗑 Eliminar</button>
+      <button class="btn btn-secondary btn-sm" onclick="reprocessDocument('${docId}')" title="Reprocesar con IA">🔄 Reprocesar</button>
       <button class="btn btn-danger btn-sm" onclick="updateDocStatus('${docId}','RECHAZADO')">✕ Rechazar</button>
       <button class="btn btn-secondary" onclick="closeModal('docModal')">Cerrar</button>
       <button class="btn btn-success" onclick="updateDocFromModal('${docId}')">✓ Aprobar</button>
@@ -2401,7 +2753,8 @@ async function renderAnalitica() {
     ]);
     const c1 = document.getElementById('chartCat2');
     if (c1) {
-      const items = cats.por_categoria || [];
+      // Backend devuelve: cats.categorias (array con {categoria, total, cantidad})
+      const items = cats.categorias || cats.por_categoria || [];
       new Chart(c1, {
         type: 'bar',
         data: {
@@ -2423,7 +2776,8 @@ async function renderAnalitica() {
     }
     const c2 = document.getElementById('chartTrend2');
     if (c2) {
-      const items = trend.tendencia_mensual || [];
+      // Backend devuelve: trend.datos (array con {mes, total, cantidad})
+      const items = trend.datos || trend.tendencia_mensual || [];
       new Chart(c2, {
         type: 'line',
         data: {
@@ -2447,7 +2801,8 @@ async function renderAnalitica() {
       });
     }
     const pEl = document.getElementById('provTable');
-    const pItems = provs.por_proveedor || [];
+    // Backend devuelve: provs.top_proveedores (array con {proveedor, total, cantidad})
+    const pItems = provs.top_proveedores || provs.proveedores || provs.por_proveedor || [];
     if (!pItems.length) {
       pEl.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:10px">Sin datos</div>';
       return;
@@ -2495,24 +2850,31 @@ async function renderRecomendaciones() {
         </div>`;
       return;
     }
-    document.getElementById('mainContent').innerHTML = recs.map(rec => `
-      <div class="card" style="margin-bottom:14px">
-        <div style="display:flex;align-items:flex-start;gap:14px">
-          <div style="font-size:30px">${rec.icono || '💡'}</div>
-          <div style="flex:1">
-            <div style="font-size:14px;font-weight:700;margin-bottom:5px">${escHtml(rec.titulo || '')}</div>
-            <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px">${escHtml(rec.descripcion || '')}</div>
-            ${rec.ahorro_potencial
-              ? `<div style="font-size:12px;color:var(--green);font-weight:700">
-                  💰 Ahorro potencial: $${Number(rec.ahorro_potencial).toLocaleString('es-CL')}
-                 </div>`
-              : ''}
+    document.getElementById('mainContent').innerHTML = recs.map(rec => {
+      // Backend puede devolver: rec.titulo o rec.mensaje, rec.descripcion o rec.accion, rec.prioridad o rec.severidad
+      const titulo = rec.titulo || rec.mensaje || rec.tipo || 'Recomendación';
+      const desc = rec.descripcion || rec.accion || '';
+      const prioridad = (rec.prioridad || rec.severidad || 'media').toLowerCase();
+      const ahorro = rec.ahorro_potencial || rec.impacto_potencial || 0;
+      const badgeCls = prioridad === 'alta' || prioridad === 'high' ? 'badge-rechazado'
+        : prioridad === 'media' || prioridad === 'medium' ? 'badge-pendiente' : 'badge-revisado';
+      return `
+        <div class="card" style="margin-bottom:14px">
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <div style="font-size:30px">${rec.icono || '💡'}</div>
+            <div style="flex:1">
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">${escHtml(titulo)}</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px">${escHtml(desc)}</div>
+              ${ahorro > 0
+                ? `<div style="font-size:12px;color:var(--green);font-weight:700">
+                    💰 Ahorro potencial: $${Number(ahorro).toLocaleString('es-CL')}
+                   </div>`
+                : ''}
+            </div>
+            <span class="badge ${badgeCls}">${prioridad}</span>
           </div>
-          <span class="badge ${rec.prioridad === 'alta' ? 'badge-rechazado' : rec.prioridad === 'media' ? 'badge-pendiente' : 'badge-revisado'}">
-            ${rec.prioridad || 'media'}
-          </span>
-        </div>
-      </div>`).join('');
+        </div>`;
+    }).join('');
   } catch(e) {
     document.getElementById('mainContent').innerHTML =
       `<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`;

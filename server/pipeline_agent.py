@@ -51,10 +51,14 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-# ── Modelo único soportado ────────────────────────────────────────────────────
-QWEN_MODEL = "qwen3.5:0.8b"
-TEXT_MODELS = ["qwen3.5:0.8b"]
-VISION_MODELS = ["qwen3.5:0.8b"]  # qwen3.5 acepta imágenes en base64
+## ── Modelos soportados por agente ──────────────────────────────────────
+QWEN_MODEL = "qwen3.5:0.8b"      # Agentes visuales (OCR+Visual+Extractor)
+LLAMA_MODEL = "llama3.2:3b"      # Agentes de razonamiento (Clasificador+Auditor+Recomendador)
+
+# Listas de preferencia por tipo de tarea
+VISION_MODELS = ["qwen3.5:0.8b", "llava:7b", "llava:13b"]  # Modelos con soporte de imagen
+TEXT_MODELS   = ["qwen3.5:0.8b", "llama3.2:3b", "llama3:8b"]  # Fallback genérico
+LLAMA_TEXT_MODELS = ["llama3.2:3b", "llama3:8b", "qwen3.5:0.8b"]  # Preferencia llama base64
 
 
 # ── Utilidades Ollama ─────────────────────────────────────────────────────────
@@ -774,15 +778,21 @@ class DocumentPipelineAgent:
         self._available_models: Optional[List[str]] = None
         self._text_model: Optional[str] = None
         self._vision_model: Optional[str] = None
+        self._llama_model: Optional[str] = None
 
     def _get_models(self):
-        """Detecta modelos disponibles (cached)."""
+        """Detecta modelos disponibles (cached). Retorna (vision_model, llama_model)."""
         if self._available_models is None:
             self._available_models = _ollama_list()
-            self._text_model = _find_best_model(TEXT_MODELS, self._available_models)
             self._vision_model = _find_best_model(VISION_MODELS, self._available_models)
-            logger.info(f"Modelos — texto: {self._text_model}, visión: {self._vision_model}")
-        return self._text_model, self._vision_model
+            self._llama_model = _find_best_model(LLAMA_TEXT_MODELS, self._available_models)
+            # Fallback: si no hay llama, usar qwen para todo
+            if not self._llama_model:
+                self._llama_model = self._vision_model
+            # text_model es el fallback genérico
+            self._text_model = self._vision_model or self._llama_model
+            logger.info(f"Modelos — visión/extractor: {self._vision_model}, clasificador/auditor: {self._llama_model}")
+        return self._vision_model, self._llama_model
 
     def _emit(self, step: str, status: str, data: Dict) -> str:
         """Genera un evento SSE."""
@@ -798,7 +808,17 @@ class DocumentPipelineAgent:
         """
         Obtiene la configuración del agente desde el archivo JSON de configuración.
         El archivo es gestionado por los endpoints /api/agents en app.py.
+        Modelos por defecto: qwen para visual/extractor, llama para clasificador/auditor/recomendador.
         """
+        # Defaults por agente
+        agent_defaults = {
+            "vision":       {"modelo": QWEN_MODEL,  "timeout": 180, "temperature": 0.1, "max_tokens": 1024},
+            "extractor":    {"modelo": QWEN_MODEL,  "timeout": 120, "temperature": 0.1, "max_tokens": 800},
+            "clasificador": {"modelo": LLAMA_MODEL, "timeout": 90,  "temperature": 0.05, "max_tokens": 512},
+            "auditor":      {"modelo": LLAMA_MODEL, "timeout": 120, "temperature": 0.05, "max_tokens": 1024},
+            "recomendador": {"modelo": LLAMA_MODEL, "timeout": 180, "temperature": 0.2,  "max_tokens": 2048},
+        }
+        d = agent_defaults.get(agent_id, {"modelo": QWEN_MODEL, "timeout": 120, "temperature": 0.1, "max_tokens": 800})
         try:
             agents_file = self.uploads_dir.parent / "agents_config.json"
             if agents_file.exists():
@@ -807,28 +827,22 @@ class DocumentPipelineAgent:
                     if a.get("id") == agent_id:
                         params = a.get("parametros", {})
                         return {
-                            "modelo": a.get("modelo") or QWEN_MODEL,
+                            "modelo": a.get("modelo") or d["modelo"],
                             "prompt": a.get("prompt") or "",
                             "system_prompt": a.get("system_prompt") or "",
-                            "timeout": params.get("timeout", 120),
-                            "temperature": params.get("temperature", 0.1),
-                            "max_tokens": params.get("max_tokens", 800),
+                            "timeout": params.get("timeout", d["timeout"]),
+                            "temperature": params.get("temperature", d["temperature"]),
+                            "max_tokens": params.get("max_tokens", d["max_tokens"]),
                         }
         except Exception as e:
             logger.debug(f"AgentConfig read error: {e}")
-        # Defaults por agente si no hay archivo de configuración
-        defaults = {
-            "vision":     {"timeout": 180, "temperature": 0.1, "max_tokens": 800},
-            "extractor":  {"timeout": 120, "temperature": 0.1, "max_tokens": 600},
-            "clasificador": {"timeout": 60, "temperature": 0.1, "max_tokens": 256},
-            "auditor":    {"timeout": 90,  "temperature": 0.1, "max_tokens": 512},
-        }
-        d = defaults.get(agent_id, {"timeout": 120, "temperature": 0.1, "max_tokens": 800})
         return {
-            "modelo": QWEN_MODEL,
+            "modelo": d["modelo"],
             "prompt": "",
             "system_prompt": "",
-            **d
+            "timeout": d["timeout"],
+            "temperature": d["temperature"],
+            "max_tokens": d["max_tokens"],
         }
 
     def process_stream(self, file_path: str, original_filename: str) -> Generator[str, None, None]:
@@ -838,7 +852,10 @@ class DocumentPipelineAgent:
         """
         doc_id = str(uuid.uuid4())
         ext = Path(file_path).suffix.lower()
-        text_model, vision_model = self._get_models()
+        vision_model, llama_model = self._get_models()
+        # Alias para compatibilidad con el resto del pipeline
+        text_model = vision_model  # qwen para OCR/Visual/Extractor
+        # llama_model para Clasificador/Auditor
 
         # Determinar si el archivo es una imagen (para enviar a modelos de visión)
         is_image = ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
@@ -918,17 +935,22 @@ class DocumentPipelineAgent:
         # Produce: campos visuales + texto adicional
         if vision_model and img_b64:
             cfg_vision = self._get_agent_config("vision")
+            vision_model_to_use = cfg_vision["modelo"] or vision_model
             yield self._emit("vision", "running", {
                 "title": "Agente Visual — Análisis de imagen",
-                "message": "Analizando imagen con motor IA visual + contexto OCR..."
+                "message": f"Analizando imagen con {vision_model_to_use} + contexto OCR..."
             })
             try:
                 # Usar prompt/system_prompt configurado, sino el default
+                # Para qwen3.5: habilitar thinking con /think al inicio del prompt
                 vision_prompt = cfg_vision["prompt"] if cfg_vision["prompt"] else build_vision_prompt(ctx["ocr_text"])
                 vision_system = cfg_vision["system_prompt"] if cfg_vision["system_prompt"] else VISION_SYSTEM_PROMPT
+                # Agregar /think para activar thinking en qwen3.5
+                if "qwen" in vision_model_to_use.lower() and not vision_prompt.startswith("/think"):
+                    vision_prompt = "/think\n" + vision_prompt
 
                 vision_resp = _ollama_generate(
-                    model=vision_model,
+                    model=vision_model_to_use,
                     prompt=vision_prompt,
                     image_b64=img_b64,                    # ← IMAGEN incluida
                     system=vision_system,
@@ -977,13 +999,14 @@ class DocumentPipelineAgent:
                 "message": reason
             })
 
-        # ── PASO 3: Agente Extractor ──────────────────────────────────────────
+        # ── PASO 3: Agente Extractor ──────────────────────────────────────────────────
         # Recibe: IMAGEN + texto OCR + campos del Agente Visual
         # Produce: campos estructurados consolidados
         cfg_extractor = self._get_agent_config("extractor")
+        extractor_model_to_use = cfg_extractor["modelo"] or text_model
         yield self._emit("extraction", "running", {
             "title": "Agente Extractor — Consolidación de campos",
-            "message": "Extrayendo campos con IA + regex sobre texto OCR y campos visuales..."
+            "message": f"Extrayendo campos con {extractor_model_to_use} + regex sobre texto OCR y campos visuales..."
         })
 
         try:
@@ -995,7 +1018,7 @@ class DocumentPipelineAgent:
                     ctx["fields"][k] = v
 
             # 2. LLM con imagen + contexto acumulado si está disponible
-            if text_model and ctx["combined_text"] and len(ctx["combined_text"].split()) >= 5:
+            if extractor_model_to_use and ctx["combined_text"] and len(ctx["combined_text"].split()) >= 5:
                 # Usar prompt personalizado si está configurado
                 if cfg_extractor["prompt"]:
                     extractor_prompt = cfg_extractor["prompt"].replace("{text}", ctx["combined_text"][:2500])
@@ -1003,8 +1026,12 @@ class DocumentPipelineAgent:
                     extractor_prompt = build_extractor_prompt(ctx["ocr_text"], ctx["vision_fields"])
 
                 extractor_system = cfg_extractor["system_prompt"] if cfg_extractor["system_prompt"] else EXTRACTOR_SYSTEM_PROMPT
+                # Agregar /think para activar thinking en qwen3.5
+                if "qwen" in extractor_model_to_use.lower() and not extractor_prompt.startswith("/think"):
+                    extractor_prompt = "/think\n" + extractor_prompt
+
                 llm_resp = _ollama_generate(
-                    model=text_model,
+                    model=extractor_model_to_use,
                     prompt=extractor_prompt,
                     image_b64=img_b64,                    # ← IMAGEN incluida
                     system=extractor_system,
@@ -1073,7 +1100,8 @@ class DocumentPipelineAgent:
                 search_text = combined_lower + " " + proveedor_lower + " " + desc_lower
 
                 # 1. LLM con contexto completo
-                if text_model:
+                classifier_model_to_use = cfg_classifier["modelo"] or llama_model or text_model
+                if classifier_model_to_use:
                     cat_names = "\n".join(
                         f"- {c['nombre']}" + (f" ({c['descripcion']})" if c['descripcion'] != c['nombre'] else "")
                         for c in cat_list
@@ -1094,7 +1122,7 @@ class DocumentPipelineAgent:
 
                     classifier_system = cfg_classifier["system_prompt"] if cfg_classifier["system_prompt"] else CLASSIFIER_SYSTEM_PROMPT
                     llm_resp = _ollama_generate(
-                        model=text_model,
+                        model=classifier_model_to_use,
                         prompt=cls_prompt,
                         system=classifier_system,
                         timeout=cfg_classifier["timeout"],
@@ -1224,7 +1252,8 @@ class DocumentPipelineAgent:
                 requiere_revision = True
 
             # Auditoría con LLM si está disponible (para detectar anomalías semánticas)
-            if text_model and not dup:  # No auditar duplicados con LLM (ya sabemos que son duplicados)
+            auditor_model_to_use = cfg_auditor["modelo"] or llama_model or text_model
+            if auditor_model_to_use and not dup:  # No auditar duplicados con LLM
                 try:
                     if cfg_auditor["prompt"]:
                         audit_prompt = cfg_auditor["prompt"]
@@ -1236,9 +1265,9 @@ class DocumentPipelineAgent:
 
                     auditor_system = cfg_auditor["system_prompt"] if cfg_auditor["system_prompt"] else AUDITOR_SYSTEM_PROMPT
                     audit_resp = _ollama_generate(
-                        model=text_model,
+                        model=auditor_model_to_use,
                         prompt=audit_prompt,
-                        image_b64=img_b64,              # ← IMAGEN incluida
+                        image_b64=img_b64,              # ← IMAGEN incluida (llama3.2 vision)
                         system=auditor_system,
                         timeout=cfg_auditor["timeout"],
                         temperature=cfg_auditor["temperature"],
