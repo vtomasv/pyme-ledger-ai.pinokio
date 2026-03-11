@@ -797,17 +797,31 @@ async def preview_document(doc_id: str):
                 data = f.read()
             return Response(content=data, media_type="image/png", headers=headers)
         elif ext == ".pdf":
-            # Intentar thumbnail con pdf2image
+            # Intentar thumbnail con pdf2image, cacheado en disco
+            thumb_dir = file_path.parent / "thumbnails"
+            thumb_dir.mkdir(exist_ok=True)
+            thumb_path = thumb_dir / (file_path.stem + "_thumb.jpg")
             try:
+                # Usar thumbnail cacheado si existe y es más reciente que el PDF
+                if thumb_path.exists() and thumb_path.stat().st_mtime >= file_path.stat().st_mtime:
+                    with open(str(thumb_path), "rb") as f:
+                        data = f.read()
+                    return Response(content=data, media_type="image/jpeg", headers=headers)
+                # Generar thumbnail
                 from pdf2image import convert_from_path
-                pages = convert_from_path(str(file_path), first_page=1, last_page=1, dpi=150)
+                pages = convert_from_path(
+                    str(file_path), first_page=1, last_page=1,
+                    dpi=120, size=(800, None)  # ancho máx 800px, alto proporcional
+                )
                 if pages:
+                    # Guardar en disco para caché
+                    pages[0].save(str(thumb_path), format="JPEG", quality=82, optimize=True)
                     img_io = io.BytesIO()
-                    pages[0].save(img_io, format="JPEG", quality=80)
+                    pages[0].save(img_io, format="JPEG", quality=82)
                     img_io.seek(0)
                     return StreamingResponse(img_io, media_type="image/jpeg", headers=headers)
             except Exception as e:
-                print(f"INFO: pdf2image no disponible para preview ({e})")
+                print(f"INFO: pdf2image error en preview ({e})")
             # Fallback: retornar 204 para que la UI muestre ícono de PDF
             return Response(status_code=204, headers=headers)
         else:

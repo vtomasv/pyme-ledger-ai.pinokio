@@ -2422,14 +2422,18 @@ function renderDocGrid(docs) {
   el.innerHTML = docs.map(doc => {
     const ext = (doc.tipo_archivo || 'pdf').toLowerCase();
     const isImg = ['jpg', 'jpeg', 'png', 'bmp', 'webp', 'tiff'].includes(ext);
+    const isPdf = ext === 'pdf';
+    // Tanto imágenes como PDFs intentan cargar el preview via API
+    // El endpoint /preview devuelve JPEG para PDFs (thumbnail de la primera página)
+    const canPreview = isImg || isPdf;
     return `
       <div class="doc-card" onclick="openDocModal('${doc.id}')">
         <div class="doc-thumb">
-          ${isImg
+          ${canPreview
             ? `<img src="${API}/api/documentos/${doc.id}/preview"
                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
                 loading="lazy"/>
-               <div class="dt-icon" style="display:none">🖼</div>`
+               <div class="dt-icon" style="display:none">${isPdf ? '📄' : '🖼'}</div>`
             : `<div class="dt-icon">📄</div>`}
           <span class="doc-status badge badge-${(doc.estado_revision || 'pendiente').toLowerCase()}">
             ${statusLabel(doc.estado_revision)}
@@ -2914,10 +2918,18 @@ async function openDocModal(docId) {
                   onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
                  <div class='no-preview' style='display:none'><div class='np-icon'>📄</div><div>Vista previa no disponible</div></div>`
               : isPdf
-              ? `<div class="pdf-embed-wrap">
-                  <iframe src="${API}/api/documentos/${docId}/download#toolbar=1&navpanes=0"
-                    title="PDF Viewer"
-                    onerror="this.parentElement.innerHTML='<div class=no-preview><div class=np-icon>📄</div><div style=font-size:12px;margin-bottom:10px>PDF no disponible en vista previa</div><a href=${API}/api/documentos/${docId}/download class=btn btn-secondary btn-sm download>⬇ Descargar</a></div>'"></iframe>
+              ? `<div style="position:relative">
+                  <img src="${API}/api/documentos/${docId}/preview"
+                    style="max-width:100%;max-height:380px;object-fit:contain;border-radius:6px;display:block"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+                  <div class='no-preview' style='display:none;flex-direction:column;align-items:center;padding:24px'>
+                    <div class='np-icon'>\u{1F4C4}</div>
+                    <div style='font-size:12px;margin-bottom:10px'>PDF \u2014 vista previa no disponible</div>
+                    <a href='${API}/api/documentos/${docId}/download' class='btn btn-secondary btn-sm' download>\u2B07 Descargar PDF</a>
+                  </div>
+                  <a href='${API}/api/documentos/${docId}/download'
+                    style='position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.6);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;text-decoration:none'
+                    download>\u2B07 PDF</a>
                 </div>`
               : `<div class="no-preview">
                   <div class="np-icon">📄</div>
@@ -3608,7 +3620,19 @@ async function exportData() {
 // UTILIDADES
 // ═══════════════════════════════════════════════════════════════
 function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id)?.classList.remove('open');
+  // Al cerrar el modal de documento, recargar el grid y el dashboard
+  // para reflejar cualquier cambio hecho dentro del modal
+  if (id === 'docModal') {
+    if (document.getElementById('docGrid')) {
+      // Recargar desde el servidor para tener datos frescos
+      loadDocumentos();
+    }
+    if (document.getElementById('recentDocs')) renderRecentDocs();
+    refreshDashboardData();
+  }
+}
 
 function showToast(msg, type = 'info') {
   const c = document.getElementById('toastContainer');
