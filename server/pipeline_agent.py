@@ -94,6 +94,100 @@ def _find_best_model(preferred_list: List[str], available: List[str]) -> Optiona
     return None
 
 
+def _extract_fields_from_thinking(thinking_text: str) -> Dict:
+    """
+    Extrae campos clave del texto del thinking cuando el JSON está truncado o ausente.
+    Busca patrones como: `campo`: valor, **campo:** valor, "campo": valor
+    Retorna un dict con los campos encontrados.
+    """
+    fields = {}
+    if not thinking_text:
+        return fields
+
+    # Patrones para extraer valores mencionados en el thinking
+    field_patterns = {
+        "monto_total": [
+            r'`?monto_total`?[:\s]+([\d,\.]+)',
+            r'\*\*?[Tt]otal[:\s]+\*\*?\$?\s*([\d,\.]+)',
+            r'TOTAL[\s:]+\$?\s*([\d,\.]{3,})',
+            r'total.*?([\d,\.]{4,})',
+        ],
+        "monto_neto": [
+            r'`?monto_neto`?[:\s]+([\d,\.]+)',
+            r'[Nn]eto[:\s]+\$?\s*([\d,\.]+)',
+            r'P\.\s*UNITARIO[:\s]+\$?\s*([\d,\.]+)',
+        ],
+        "iva": [
+            r'`?iva`?[:\s]+([\d,\.]+)',
+            r'IGV[:\s]+\$?\s*([\d,\.]+)',
+        ],
+        "proveedor": [
+            r'`?proveedor`?[:\s]+["\']?([A-Z][\w\s\.]+)["\']?',
+            r'[Ee]misor[:\s]+["\']?([A-Z][\w\s\.]+)["\']?',
+        ],
+        "rut_proveedor": [
+            r'`?rut_proveedor`?[:\s]+["\']?([\d\.\-kK]{8,})["\']?',
+            r'R\.?U\.?[CT]\.?[:\s]+([\d\.\-kK]{8,})',
+            r'([\d]{8,11})\s*\(R\.?U\.?[CT]',
+        ],
+        "fecha_emision": [
+            r'`?fecha_emision`?[:\s]+["\']?(\d{4}-\d{2}-\d{2})["\']?',
+            r'(\d{4}-\d{2}-\d{2})',
+        ],
+        "folio": [
+            r'`?folio`?[:\s]+["\']?([\d]{3,8})["\']?',
+            r'N[\u00b0o]\s+([\d]{4,8})',
+        ],
+        "tipo_documento": [
+            r'`?tipo_documento`?[:\s]+["\']?([A-Z\s]+)["\']?',
+            r'(BOLETA DE VENTA|FACTURA|BOLETA|RECIBO)',
+        ],
+        "moneda": [
+            r'`?moneda`?[:\s]+["\']?(CLP|PEN|MXN|USD|ARS)["\']?',
+        ],
+        "descripcion": [
+            r'`?descripcion`?[:\s]+["\']?([\w\s]+)["\']?',
+            r'[Dd]escripci[oó]n[:\s]+["\']?([\w\s]+)["\']?',
+        ],
+    }
+
+    def parse_amount(raw: str) -> Optional[float]:
+        if not raw:
+            return None
+        cleaned = raw.strip()
+        if re.search(r'\d\.\d{3}', cleaned):
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        elif re.search(r'\d,\d{3}', cleaned):
+            cleaned = cleaned.replace(',', '')
+        elif ',' in cleaned and '.' not in cleaned:
+            cleaned = cleaned.replace(',', '.')
+        else:
+            cleaned = cleaned.replace(',', '')
+        try:
+            val = float(cleaned)
+            return val if val > 0 else None
+        except Exception:
+            return None
+
+    amount_fields = {'monto_total', 'monto_neto', 'iva'}
+    for field, patterns in field_patterns.items():
+        for pat in patterns:
+            m = re.search(pat, thinking_text, re.IGNORECASE | re.MULTILINE)
+            if m:
+                val = m.group(1).strip()
+                if field in amount_fields:
+                    num = parse_amount(val)
+                    if num and num > 0:
+                        fields[field] = num
+                        break
+                else:
+                    if val and val not in ('null', 'None', ''):
+                        fields[field] = val
+                        break
+
+    return fields
+
+
 def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
                      system: Optional[str] = None,
                      timeout: int = 120,
@@ -141,15 +235,16 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
             clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.IGNORECASE).strip()
 
             # — Fallback: si clean_response no contiene JSON válido pero thinking sí,
-            #   extraer el JSON del thinking (qwen3.5 a veces pone el JSON solo en thinking)
+            #   extraer el JSON del thinking (qwen3.5 a veces pone el JSON solo en thinking
+            #   cuando el response se trunca antes de llegar al JSON final)
             if enable_thinking and thinking_text:
-                # Verificar si clean_response tiene JSON
+                # Verificar si clean_response tiene JSON válido
                 has_json_in_response = bool(
                     re.search(r'\{[\s\S]*\}', clean_response) or
                     re.search(r'```json', clean_response, re.IGNORECASE)
                 )
                 if not has_json_in_response:
-                    # Intentar extraer JSON del thinking
+                    # Intentar extraer JSON completo del thinking
                     json_in_thinking = re.search(
                         r'```json\s*([\s\S]*?)\s*```|({\s*"[^"]+"[\s\S]*?})',
                         thinking_text, re.DOTALL
@@ -159,6 +254,13 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
                         if extracted:
                             logger.debug("Usando JSON extraído del thinking como respuesta")
                             clean_response = extracted.strip()
+                    else:
+                        # Último recurso: construir JSON desde campos mencionados en el thinking
+                        # usando regex sobre el texto del thinking
+                        reconstructed = _extract_fields_from_thinking(thinking_text)
+                        if reconstructed:
+                            logger.debug("JSON reconstruido desde campos del thinking")
+                            clean_response = json.dumps(reconstructed, ensure_ascii=False)
 
             return clean_response, final_prompt, raw_response, thinking_text
         logger.warning(f"Ollama HTTP {r.status_code}: {r.text[:200]}")
@@ -603,35 +705,31 @@ VISION_SYSTEM_PROMPT = """Eres el Agente Visual, un experto en análisis de docu
 Tu rol es analizar visualmente la imagen del documento y extraer TODA la información visible.
 Eres el segundo agente en el pipeline — ya tienes el texto extraído por OCR del paso anterior.
 Debes complementar y corregir el OCR con lo que ves directamente en la imagen.
-Responde SOLO con JSON válido, sin texto adicional ni markdown."""
+
+REGLA ABSOLUTA: Tu respuesta final DEBE terminar con un objeto JSON completo y válido.
+El JSON debe estar en una única línea al final, sin markdown, sin bloques de código.
+Si el thinking te lleva a analizar el documento, SIEMPRE termina con el JSON.
+NUNCA dejes el JSON incompleto o truncado."""
 
 def build_vision_prompt(ocr_text: str) -> str:
     """Construye el prompt del Agente Visual con el contexto OCR del paso anterior."""
     return f"""El Agente OCR extrajo el siguiente texto del documento (puede tener errores):
 
-=== TEXTO OCR (paso anterior) ===
-{ocr_text[:1500] if ocr_text else "(sin texto OCR)"}
+=== TEXTO OCR (Agente OCR) ===
+{ocr_text[:2000] if ocr_text else "(sin texto OCR)"}
 === FIN TEXTO OCR ===
 
-Ahora analiza la IMAGEN del documento y extrae todos los campos visibles.
-Corrige los errores del OCR si los detectas mirando la imagen.
+Analiza la IMAGEN del documento. Corrige los errores del OCR con lo que ves directamente.
 
-Extrae en formato JSON:
-{{
-  "tipo_documento": "FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO",
-  "proveedor": "nombre completo del emisor",
-  "rut_proveedor": "RUT/RUC/RFC del emisor (exactamente como aparece)",
-  "fecha_emision": "YYYY-MM-DD",
-  "folio": "número de documento",
-  "descripcion": "descripción del producto o servicio",
-  "monto_neto": número sin símbolos,
-  "iva": número sin símbolos,
-  "monto_total": número sin símbolos (busca la línea TOTAL al final),
-  "moneda": "CLP|USD|EUR|PEN|MXN|ARS",
-  "texto_completo": "todo el texto visible en el documento"
-}}
+REGLAS PARA MONTOS:
+- monto_total: el número que aparece junto a "TOTAL", "TOTAL SI.", "Total a pagar" al final
+- monto_neto: precio sin impuestos (P. UNITARIO x cantidad, o subtotal)
+- iva: impuesto (IVA, IGV, impuesto)
+- Los montos son SOLO números flotantes (sin $, sin puntos de miles)
+- Ejemplo: "$1,200.00" → 1200.0
 
-IMPORTANTE: monto_total es el número que aparece en la línea "TOTAL" o "Total" al final del documento."""
+DEVUELVE EXACTAMENTE ESTE JSON (sin texto antes ni después, sin markdown):
+{{"tipo_documento":"BOLETA|FACTURA|RECIBO|NOTA_CREDITO|OTRO","proveedor":"nombre o null","rut_proveedor":"id fiscal o null","fecha_emision":"YYYY-MM-DD o null","folio":"numero o null","descripcion":"descripcion o null","monto_neto":numero_o_null,"iva":numero_o_null,"monto_total":numero_o_null,"moneda":"CLP|PEN|MXN|USD|ARS","texto_completo":"texto visible"}}"""
 
 
 # System prompt del Agente Extractor
@@ -640,34 +738,45 @@ EXTRACTOR_SYSTEM_PROMPT = """Eres el Agente Extractor, un contador experto en do
 Tu rol es extraer campos estructurados del documento con máxima precisión.
 Eres el tercer agente en el pipeline — tienes el texto OCR y los campos detectados por el Agente Visual.
 Debes consolidar y completar la información, priorizando los valores más confiables.
-Responde SOLO con JSON válido, sin texto adicional ni markdown."""
+
+REGLA ABSOLUTA: Tu respuesta final DEBE ser un objeto JSON completo y válido en una sola línea.
+NUNCA uses markdown, bloques de código, ni texto antes o después del JSON.
+NUNCA dejes el JSON truncado o incompleto.
+Si el Agente Visual ya detectó un campo con valor, úsalo como base y mejora si puedes."""
 
 def build_extractor_prompt(ocr_text: str, vision_fields: Dict) -> str:
     """Construye el prompt del Agente Extractor con el contexto acumulado."""
-    vision_summary = json.dumps(vision_fields, ensure_ascii=False, indent=2) if vision_fields else "(sin campos del agente visual)"
+    # Mostrar los campos del agente visual de forma clara, incluyendo montos
+    vision_lines = []
+    if vision_fields:
+        for k, v in vision_fields.items():
+            if v is not None and str(v) not in ('null', 'None', ''):
+                vision_lines.append(f"  {k}: {v}")
+    vision_summary = '\n'.join(vision_lines) if vision_lines else "(sin campos del agente visual)"
+
     return f"""Tienes acceso a:
 
 === TEXTO OCR (Agente OCR) ===
 {ocr_text[:2000] if ocr_text else "(sin texto OCR)"}
 === FIN TEXTO OCR ===
 
-=== CAMPOS DETECTADOS POR AGENTE VISUAL ===
+=== CAMPOS YA DETECTADOS POR AGENTE VISUAL (usa estos como base) ===
 {vision_summary}
 === FIN CAMPOS VISUALES ===
 
-Analiza TODA esta información (y la imagen si está disponible) y extrae los campos con máxima precisión.
+Analiza TODA esta información (y la imagen si está disponible) y consolida los campos.
 
-REGLAS CRÍTICAS para montos:
-- monto_total: busca "TOTAL", "Total:", "TOTAL:", seguido de un número. ESE número es el total.
-- Si el OCR dice "Total: 238" o "Total 238" o "TOTAL 238" → monto_total = 238
-- Si el Agente Visual detectó un monto_total diferente, usa el que tenga más sentido
-- Los montos son SOLO números (sin $, sin puntos de miles, sin texto)
-- Si monto_neto e iva están disponibles: monto_total = monto_neto + iva
-- rut_proveedor: formato chileno XX.XXX.XXX-X, peruano XXXXXXXXXX, mexicano RFC
-- fecha_emision: formato YYYY-MM-DD
+REGLAS CRÍTICAS:
+1. Si el Agente Visual ya detectó un campo, úsalo a menos que veas algo mejor en la imagen/OCR
+2. monto_total: busca "TOTAL", "TOTAL SI.", "Total a pagar" al final del documento
+   - Si el Visual detectó monto_total, úsalo directamente
+   - Los montos son números flotantes: "$1,200.00" → 1200.0
+3. Si monto_neto e iva están disponibles y monto_total no: monto_total = monto_neto + iva
+4. rut_proveedor: RUT chileno (XX.XXX.XXX-X), RUC peruano (11 dígitos), RFC mexicano
+5. fecha_emision: formato YYYY-MM-DD
 
-Devuelve SOLO este JSON (sin texto adicional):
-{{"tipo_documento":"FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO","proveedor":"nombre o null","rut_proveedor":"identificador fiscal o null","fecha_emision":"YYYY-MM-DD o null","folio":"numero o null","descripcion":"descripcion o null","monto_neto":numero_o_null,"iva":numero_o_null,"monto_total":numero_o_null,"moneda":"CLP|PEN|MXN|USD|ARS"}}"""
+DEVUELVE EXACTAMENTE ESTE JSON EN UNA SOLA LÍNEA (sin texto antes ni después):
+{{"tipo_documento":"BOLETA|FACTURA|RECIBO|NOTA_CREDITO|OTRO","proveedor":"nombre o null","rut_proveedor":"id fiscal o null","fecha_emision":"YYYY-MM-DD o null","folio":"numero o null","descripcion":"descripcion o null","monto_neto":numero_o_null,"iva":numero_o_null,"monto_total":numero_o_null,"moneda":"CLP|PEN|MXN|USD|ARS"}}"""
 
 
 # System prompt del Agente Clasificador
@@ -880,13 +989,16 @@ class DocumentPipelineAgent:
         """
         # Defaults por agente
         agent_defaults = {
-            "vision":       {"modelo": QWEN_MODEL,  "timeout": 180, "temperature": 0.1, "max_tokens": 1024},
-            "extractor":    {"modelo": QWEN_MODEL,  "timeout": 120, "temperature": 0.1, "max_tokens": 800},
-            "clasificador": {"modelo": LLAMA_MODEL, "timeout": 90,  "temperature": 0.05, "max_tokens": 512},
-            "auditor":      {"modelo": LLAMA_MODEL, "timeout": 120, "temperature": 0.05, "max_tokens": 1024},
-            "recomendador": {"modelo": LLAMA_MODEL, "timeout": 180, "temperature": 0.2,  "max_tokens": 2048},
+            # max_tokens aumentados para evitar truncamiento del JSON de salida.
+            # Con thinking activado, qwen3.5 consume tokens en el razonamiento interno
+            # antes de generar el JSON final, por lo que necesita más tokens de salida.
+            "vision":       {"modelo": QWEN_MODEL,  "timeout": 300, "temperature": 0.1, "max_tokens": 4096},
+            "extractor":    {"modelo": QWEN_MODEL,  "timeout": 240, "temperature": 0.1, "max_tokens": 3000},
+            "clasificador": {"modelo": LLAMA_MODEL, "timeout": 120, "temperature": 0.05, "max_tokens": 1024},
+            "auditor":      {"modelo": LLAMA_MODEL, "timeout": 180, "temperature": 0.05, "max_tokens": 2048},
+            "recomendador": {"modelo": LLAMA_MODEL, "timeout": 240, "temperature": 0.2,  "max_tokens": 3000},
         }
-        d = agent_defaults.get(agent_id, {"modelo": QWEN_MODEL, "timeout": 120, "temperature": 0.1, "max_tokens": 800})
+        d = agent_defaults.get(agent_id, {"modelo": QWEN_MODEL, "timeout": 240, "temperature": 0.1, "max_tokens": 3000})
         try:
             agents_file = self.uploads_dir.parent / "agents_config.json"
             if agents_file.exists():
@@ -1144,6 +1256,11 @@ class DocumentPipelineAgent:
                 )
                 llm_fields = _parse_json_response(llm_resp)
 
+                # Si el LLM no devolvió campos pero hay thinking, intentar extraer del thinking
+                if not llm_fields and extractor_thinking:
+                    logger.debug("Extractor: LLM sin campos, intentando extraer del thinking")
+                    llm_fields = _extract_fields_from_thinking(extractor_thinking)
+
                 # El Extractor consolida: LLM tiene prioridad para campos clave
                 PRIORITY_FIELDS = {"monto_total", "monto_neto", "iva", "proveedor",
                                    "descripcion", "tipo_documento", "fecha_emision",
@@ -1154,6 +1271,17 @@ class DocumentPipelineAgent:
                             ctx["fields"][k] = v  # LLM siempre gana para campos clave
                         elif k not in ctx["fields"] or not ctx["fields"][k]:
                             ctx["fields"][k] = v
+
+                # Fallback adicional: si monto_total sigue sin detectarse,
+                # intentar extraerlo del thinking del agente visual
+                if "monto_total" not in ctx["fields"] or not ctx["fields"].get("monto_total"):
+                    vision_thinking = ctx["agent_results"].get("vision", {}).get("debug_thinking", "")
+                    if vision_thinking:
+                        vision_thinking_fields = _extract_fields_from_thinking(vision_thinking)
+                        for k in ("monto_total", "monto_neto", "iva"):
+                            if k in vision_thinking_fields and vision_thinking_fields[k]:
+                                ctx["fields"][k] = vision_thinking_fields[k]
+                                logger.debug(f"Campo {k}={vision_thinking_fields[k]} recuperado del thinking del agente visual")
 
             # Limpiar nulls y strings vacíos
             ctx["fields"] = {
