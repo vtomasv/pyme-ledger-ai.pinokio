@@ -88,10 +88,21 @@ class CategoriaContableCreate(BaseModel):
 
 
 class DocumentoUpdate(BaseModel):
+    # Campos de clasificación y estado
     categoria_id: Optional[str] = None
     centro_costo_id: Optional[str] = None
     estado_revision: Optional[str] = None
     notas_revision: Optional[str] = None
+    # Campos editables del documento
+    proveedor: Optional[str] = None
+    rut_proveedor: Optional[str] = None
+    folio: Optional[str] = None
+    fecha_emision: Optional[str] = None
+    monto_neto: Optional[float] = None
+    iva: Optional[float] = None
+    monto_total: Optional[float] = None
+    moneda: Optional[str] = None
+    tipo_documento: Optional[str] = None
 
 
 # ============================================================
@@ -485,6 +496,24 @@ async def get_document(empresa_id: str, doc_id: str):
         ruta = doc.ruta_archivo_original or ""
         ext = Path(ruta).suffix.lower().lstrip('.') if ruta else ""
         estado_val = doc.estado_revision.value.lower() if doc.estado_revision else "pendiente"
+
+        # Parsear campos_extraidos: puede ser el formato nuevo {campos, agent_results}
+        # o el formato viejo (dict plano de campos)
+        campos_raw = {}
+        agent_results_raw = {}
+        if doc.campos_extraidos:
+            try:
+                parsed = json.loads(doc.campos_extraidos)
+                if isinstance(parsed, dict) and "campos" in parsed:
+                    # Nuevo formato con agent_results
+                    campos_raw = parsed.get("campos", {})
+                    agent_results_raw = parsed.get("agent_results", {})
+                else:
+                    # Formato viejo: dict plano de campos
+                    campos_raw = parsed
+            except Exception:
+                pass
+
         return {
             "id": doc.id,
             "fecha": doc.fecha_emision.isoformat() if doc.fecha_emision else None,
@@ -507,10 +536,14 @@ async def get_document(empresa_id: str, doc_id: str):
             "estado": estado_val,
             "estado_revision": estado_val,
             "excepciones": excepciones,
-            "texto_extraido": doc.texto_extraido[:500] if doc.texto_extraido else None,
+            "texto_extraido": doc.texto_extraido[:800] if doc.texto_extraido else None,
             "ruta_archivo_original": ruta,
             "tipo_archivo": ext,
-            "nombre_archivo": Path(ruta).name if ruta else (doc.id + ".pdf")
+            "nombre_archivo": Path(ruta).name if ruta else (doc.id + ".pdf"),
+            # Campos detectados por el pipeline (todos los agentes)
+            "campos_detectados": campos_raw,
+            # Resultados individuales por agente
+            "agent_results": agent_results_raw
         }
     finally:
         db.close()
@@ -518,7 +551,7 @@ async def get_document(empresa_id: str, doc_id: str):
 
 @app.put("/api/empresas/{empresa_id}/documentos/{doc_id}")
 async def update_document(empresa_id: str, doc_id: str, update: DocumentoUpdate):
-    """Actualiza un documento."""
+    """Actualiza un documento. Soporta todos los campos editables incluyendo montos."""
     db = SessionLocal()
     try:
         doc = db.query(Documento).filter(
@@ -529,19 +562,57 @@ async def update_document(empresa_id: str, doc_id: str, update: DocumentoUpdate)
         if not doc:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         
-        if update.categoria_id:
+        # Campos de clasificación y estado
+        if update.categoria_id is not None:
             doc.categoria_id = update.categoria_id
-        if update.centro_costo_id:
+        if update.centro_costo_id is not None:
             doc.centro_costo_id = update.centro_costo_id
-        if update.estado_revision:
+        if update.estado_revision is not None:
             doc.estado_revision = EstadoRevision[update.estado_revision.upper()]
-        if update.notas_revision:
+        if update.notas_revision is not None:
             doc.notas_revision = update.notas_revision
+        
+        # Campos del documento editables por el usuario
+        if update.proveedor is not None:
+            doc.proveedor = update.proveedor
+        if update.rut_proveedor is not None:
+            doc.rut_proveedor = update.rut_proveedor
+        if update.folio is not None:
+            doc.folio = update.folio
+        if update.fecha_emision is not None:
+            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]:
+                try:
+                    doc.fecha_emision = datetime.strptime(update.fecha_emision, fmt)
+                    break
+                except Exception:
+                    pass
+        if update.monto_neto is not None:
+            doc.monto_neto = update.monto_neto
+        if update.iva is not None:
+            doc.iva = update.iva
+        if update.monto_total is not None:
+            doc.monto_total = update.monto_total
+        if update.moneda is not None:
+            doc.moneda = update.moneda
+        if update.tipo_documento is not None:
+            tipo_map = {
+                "FACTURA": TipoDocumento.FACTURA, "BOLETA": TipoDocumento.BOLETA,
+                "COMPROBANTE": TipoDocumento.COMPROBANTE, "CARTOLA": TipoDocumento.CARTOLA,
+                "OTRO": TipoDocumento.OTRO
+            }
+            doc.tipo_documento = tipo_map.get(update.tipo_documento.upper(), TipoDocumento.OTRO)
         
         doc.fecha_revision = datetime.utcnow()
         db.commit()
         
-        return {"mensaje": "Documento actualizado"}
+        return {
+            "mensaje": "Documento actualizado",
+            "id": doc_id,
+            "monto_total": doc.monto_total,
+            "monto_neto": doc.monto_neto,
+            "iva": doc.iva,
+            "proveedor": doc.proveedor
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -819,6 +890,99 @@ async def delete_document(empresa_id: str, doc_id: str, delete_file: bool = Fals
         return {"ok": True, "deleted_id": doc_id}
     finally:
         db.close()
+
+
+# ============================================================
+# Endpoint: Aprendizaje por drag-and-drop (mappings.md)
+# ============================================================
+
+class FieldMappingLearn(BaseModel):
+    """Cuando el usuario arrastra un campo detectado a un campo del formulario."""
+    doc_id: str
+    campo_origen: str        # Nombre del atributo detectado por el agente (ej: 'total_si')
+    campo_destino: str       # Campo del formulario al que se mapeó (ej: 'monto_total')
+    valor: str               # Valor que se asignó
+    agente_origen: str = ""  # Qué agente detectó este campo
+    contexto: str = ""       # Texto adicional de contexto (tipo de doc, proveedor, etc.)
+
+
+@app.post("/api/empresas/{empresa_id}/learning/field-mapping")
+async def learn_field_mapping(empresa_id: str, mapping: FieldMappingLearn):
+    """
+    Guarda un mapeo de campo aprendido por el usuario via drag-and-drop.
+    El mapeo se persiste en un archivo Markdown que se usa como contexto
+    para los agentes en futuras lecturas.
+    """
+    data_dir = Path("../data")
+    data_dir.mkdir(exist_ok=True)
+    mappings_file = data_dir / f"mappings_{empresa_id}.md"
+
+    # Leer mapeos existentes
+    existing = mappings_file.read_text(encoding="utf-8") if mappings_file.exists() else ""
+
+    # Evitar duplicados exactos
+    entry_key = f"{mapping.campo_origen} -> {mapping.campo_destino}"
+    if entry_key in existing:
+        # Actualizar la entrada existente con el nuevo valor
+        lines = existing.split("\n")
+        new_lines = []
+        skip = False
+        for line in lines:
+            if entry_key in line:
+                skip = True
+            elif skip and line.startswith("- "):
+                skip = False
+            if not skip:
+                new_lines.append(line)
+        existing = "\n".join(new_lines)
+
+    # Agregar nuevo mapeo
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d")
+    entry = f"""
+## Mapeo aprendido: `{mapping.campo_origen}` → `{mapping.campo_destino}`
+- **Fecha**: {timestamp}
+- **Agente que detectó**: {mapping.agente_origen or 'desconocido'}
+- **Valor asignado**: {mapping.valor}
+- **Contexto**: {mapping.contexto or 'no especificado'}
+- **Regla**: Cuando un agente detecte el atributo `{mapping.campo_origen}`, mapearlo al campo `{mapping.campo_destino}` del documento.
+"""
+
+    if not existing:
+        header = f"""# Mapeos de Campos Aprendidos \u2014 Empresa {empresa_id}
+
+Este archivo contiene mapeos aprendidos por el usuario mediante drag-and-drop.
+Los agentes deben usar estos mapeos como contexto para clasificar atributos detectados.
+
+"""
+        existing = header
+
+    mappings_file.write_text(existing + entry, encoding="utf-8")
+
+    return {
+        "ok": True,
+        "mensaje": f"Mapeo aprendido: '{mapping.campo_origen}' → '{mapping.campo_destino}'",
+        "total_mapeos": existing.count("## Mapeo aprendido:")
+    }
+
+
+@app.get("/api/empresas/{empresa_id}/learning/field-mappings")
+async def get_field_mappings(empresa_id: str):
+    """Devuelve todos los mapeos aprendidos para una empresa."""
+    data_dir = Path("../data")
+    mappings_file = data_dir / f"mappings_{empresa_id}.md"
+    if not mappings_file.exists():
+        return {"mappings": [], "content": ""}
+    content = mappings_file.read_text(encoding="utf-8")
+    # Parsear los mapeos del markdown
+    mappings = []
+    for line in content.split("\n"):
+        if line.startswith("## Mapeo aprendido:"):
+            # Extraer origen y destino
+            import re
+            m = re.search(r"`([^`]+)` → `([^`]+)`", line)
+            if m:
+                mappings.append({"origen": m.group(1), "destino": m.group(2)})
+    return {"mappings": mappings, "content": content}
 
 
 # ============================================================

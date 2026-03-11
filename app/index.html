@@ -2116,7 +2116,7 @@ function renderResultPanel(data) {
 
   document.getElementById('resultWrap').style.display = '';
   document.getElementById('resultSub').textContent =
-    `${data.ocr_words || 0} palabras extraídas · ${data.models_used?.text || 'regex'}`;
+    `${data.ocr_words || 0} palabras extraídas · Procesado con IA local`;
 
   document.getElementById('resultBody').innerHTML = `
     <div class="r-field">
@@ -2446,16 +2446,51 @@ function startEditField(fieldKey, currentVal, docId) {
 async function saveEditField(fieldKey, docId) {
   const input = document.getElementById(`edit_${fieldKey}`);
   if (!input) return;
-  const newVal = input.value.trim();
+  const rawVal = input.value.trim();
+  if (!rawVal) { cancelEditField(fieldKey, ''); return; }
+
+  // Convertir a tipo correcto según el campo
+  const numericFields = ['monto_neto', 'iva', 'monto_total'];
+  let payload;
+  if (numericFields.includes(fieldKey)) {
+    const cleaned = rawVal.replace(/[^\d.,]/g, '').replace(',', '.');
+    const num = parseFloat(cleaned);
+    if (isNaN(num)) { showToast('Ingresa un número válido', 'error'); return; }
+    payload = { [fieldKey]: num };
+  } else {
+    payload = { [fieldKey]: rawVal };
+  }
+
   try {
-    await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`, {
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [fieldKey]: newVal })
+      body: JSON.stringify(payload)
     });
-    showToast(`${fieldKey} actualizado`, 'success');
-    // Refresh the modal
-    await openDocModal(docId);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al guardar');
+    }
+    const saved = await r.json();
+    showToast(`Campo actualizado correctamente`, 'success');
+
+    // Actualizar la UI del campo sin recargar el modal completo
+    const valEl = document.getElementById(`dfrv_${fieldKey}`);
+    if (valEl) {
+      const isAmount = numericFields.includes(fieldKey);
+      const displayVal = isAmount && payload[fieldKey] != null
+        ? '$' + Number(payload[fieldKey]).toLocaleString('es-CL')
+        : escHtml(rawVal);
+      valEl.innerHTML = displayVal;
+      valEl.classList.remove('empty');
+      if (isAmount) valEl.style.color = 'var(--accent2)';
+      // Ocultar el input y mostrar el valor
+      const editWrap = document.getElementById(`edit_wrap_${fieldKey}`);
+      if (editWrap) editWrap.style.display = 'none';
+      valEl.style.display = '';
+      const editBtn = valEl.parentElement?.querySelector('.dfr-edit-btn');
+      if (editBtn) editBtn.style.display = '';
+    }
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
   }
@@ -2466,21 +2501,64 @@ function cancelEditField(fieldKey, originalVal) {
   if (valEl) valEl.innerHTML = escHtml(originalVal || '—');
 }
 
-function onDropToField(event, targetField, docId) {
+async function onDropToField(event, targetField, docId) {
   event.preventDefault();
   const container = event.currentTarget;
   container.classList.remove('drop-target');
   const dragData = event.dataTransfer.getData('text/plain');
   if (!dragData) return;
   try {
-    const { value } = JSON.parse(dragData);
-    startEditField(targetField, value, docId);
-    // Pre-fill the input with the dragged value
-    setTimeout(() => {
-      const inp = document.getElementById(`edit_${targetField}`);
-      if (inp) inp.value = value;
-    }, 50);
-  } catch(e) { /* ignore */ }
+    const { key: campoOrigen, val: value, agente: agenteOrigen } = JSON.parse(dragData);
+    if (!value || value === 'null' || value === 'None') return;
+
+    // 1. Guardar el valor en el campo destino inmediatamente
+    const numericFields = ['monto_neto', 'iva', 'monto_total'];
+    const payload = {};
+    if (numericFields.includes(targetField)) {
+      const cleaned = String(value).replace(/[^\d.,]/g, '').replace(',', '.');
+      payload[targetField] = parseFloat(cleaned) || null;
+    } else {
+      payload[targetField] = value;
+    }
+
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) throw new Error('Error al guardar');
+
+    // 2. Registrar el aprendizaje (mapeo campo_origen -> campo_destino)
+    if (campoOrigen && campoOrigen !== targetField) {
+      fetch(`${API}/api/empresas/${state.empresa.id}/learning/field-mapping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doc_id: docId,
+          campo_origen: campoOrigen,
+          campo_destino: targetField,
+          valor: String(value),
+          agente_origen: agenteOrigen || '',
+          contexto: `Documento ${docId}`
+        })
+      }).catch(() => {});
+    }
+
+    // 3. Actualizar la UI del campo destino
+    const valEl = document.getElementById(`dfrv_${targetField}`);
+    if (valEl) {
+      const isAmount = numericFields.includes(targetField);
+      const displayVal = isAmount && payload[targetField]
+        ? '$' + Number(payload[targetField]).toLocaleString('es-CL')
+        : escHtml(value);
+      valEl.innerHTML = displayVal;
+      valEl.classList.remove('empty');
+      valEl.style.color = isAmount ? 'var(--accent2)' : '';
+    }
+    showToast(`${targetField} actualizado desde ${campoOrigen || 'agente'}`, 'success');
+  } catch(e) {
+    showToast('Error al asignar campo: ' + e.message, 'error');
+  }
 }
 
 async function deleteDocument(docId) {
@@ -2566,22 +2644,71 @@ async function openDocModal(docId) {
         </div>`
       : '';
 
-    // Build agent results accordion
+    // Build agent results accordion — IDs match pipeline_agent.py output
     const agentResults = doc.agent_results || {};
     const agentDefs = [
-      { id: 'ocr',            icon: '🔍', name: 'Agente OCR' },
-      { id: 'vision',         icon: '👁',  name: 'Agente Visual' },
-      { id: 'extraction',     icon: '🧠', name: 'Agente Extractor' },
-      { id: 'classification', icon: '🏷', name: 'Agente Clasificador' },
-      { id: 'audit',          icon: '🛡', name: 'Agente Auditor' },
+      { id: 'ocr',          icon: '\ud83d\udd0d', name: 'Agente OCR',         fieldsKey: 'campos_detectados' },
+      { id: 'vision',       icon: '\ud83d\udc41',  name: 'Agente Visual',      fieldsKey: 'campos_detectados' },
+      { id: 'extractor',    icon: '\ud83e\udde0', name: 'Agente Extractor',   fieldsKey: 'campos_detectados' },
+      { id: 'clasificador', icon: '\ud83c\udff7', name: 'Agente Clasificador', fieldsKey: null },
+      { id: 'auditor',      icon: '\ud83d\udee1', name: 'Agente Auditor',     fieldsKey: null },
     ];
+
+    function renderAgentBody(a, res, docId) {
+      if (!res) return '<em style="color:var(--text3);font-size:11px">No hay datos de este agente para este documento.</em>';
+      let html = '';
+      // Campos detectados con chips arrastrables
+      const campos = res.campos_detectados || res.campos_finales || {};
+      if (Object.keys(campos).length > 0) {
+        html += `<div style="margin-bottom:8px">`;
+        html += `<div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Atributos detectados (arrastra al campo destino)</div>`;
+        html += `<div style="display:flex;flex-wrap:wrap;gap:5px">`;
+        for (const [k, v] of Object.entries(campos)) {
+          if (!v || v === 'null' || v === 'None') continue;
+          html += `<div class="detected-chip" draggable="true"
+            style="cursor:grab;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:3px 7px;font-size:11px;display:flex;align-items:center;gap:4px"
+            ondragstart="event.dataTransfer.setData('text/plain', JSON.stringify({key:'${escHtml(k)}',val:'${escHtml(String(v))}',agente:'${a.id}'}));event.currentTarget.style.opacity='0.5'"
+            ondragend="event.currentTarget.style.opacity='1'"
+            title="Arrastra este valor a un campo del formulario">
+            <span style="color:var(--text3)">${escHtml(k)}:</span>
+            <strong>${escHtml(String(v).substring(0, 40))}</strong>
+          </div>`;
+        }
+        html += `</div></div>`;
+      }
+      // Clasificador: mostrar categoría y confianza
+      if (res.categoria_sugerida) {
+        html += `<div style="margin-top:6px">Categor\u00eda: <strong>${escHtml(res.categoria_sugerida)}</strong> (${Math.round((res.confianza||0)*100)}%)</div>`;
+        if (res.razon) html += `<div style="font-size:11px;color:var(--text3);margin-top:3px">${escHtml(res.razon.substring(0, 200))}</div>`;
+      }
+      // Auditor: mostrar alertas
+      if (res.excepciones?.length) {
+        html += `<div style="margin-top:6px">`;
+        res.excepciones.forEach(e => {
+          html += `<div style="color:var(--yellow);font-size:11px">\u26a0 ${escHtml(e.mensaje || String(e))}</div>`;
+        });
+        html += `</div>`;
+      }
+      // Campos heredados (mostrar colapsados)
+      const heredados = res.heredado_de_ocr || res.heredado_de_vision || res.heredado_de_extractor || {};
+      if (Object.keys(heredados).length > 0) {
+        html += `<details style="margin-top:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">Heredado de agente anterior (${Object.keys(heredados).length} campos)</summary>`;
+        html += `<pre style="font-size:10px;margin:4px 0 0;color:var(--text3)">${escHtml(JSON.stringify(heredados, null, 2).substring(0, 600))}</pre></details>`;
+      }
+      return html || '<em style="color:var(--text3);font-size:11px">Agente ejecutado sin datos adicionales.</em>';
+    }
+
     const agentAccordion = `
       <div class="agent-results-panel">
         ${agentDefs.map(a => {
           const res = agentResults[a.id];
-          const hasData = res && (res.text || res.fields || res.categoria_sugerida || res.excepciones);
-          const statusCls = !hasData ? '' : (res.error ? 'err' : 'ok');
-          const statusTxt = !hasData ? 'Sin datos' : (res.error ? 'Error' : 'Completado ✓');
+          const campos = res ? (res.campos_detectados || res.campos_finales || {}) : {};
+          const nCampos = Object.keys(campos).length;
+          const hasClassif = res?.categoria_sugerida;
+          const hasAudit = res?.excepciones?.length;
+          const hasData = res && (nCampos > 0 || hasClassif || hasAudit);
+          const statusCls = !res ? '' : (res.error ? 'err' : 'ok');
+          const statusTxt = !res ? 'Sin datos' : (res.error ? 'Error' : (hasData ? `${nCampos > 0 ? nCampos + ' campos' : 'Completado'} \u2713` : 'Ejecutado'));
           return `
             <div class="agent-result-item">
               <div class="agent-result-header" onclick="this.nextElementSibling.classList.toggle('open')">
@@ -2590,11 +2717,7 @@ async function openDocModal(docId) {
                 <span class="ari-status ${statusCls}">${statusTxt}</span>
               </div>
               <div class="agent-result-body">
-                ${!hasData ? '<em>No hay datos de este agente para este documento.</em>' : ''}
-                ${res?.text ? `<div>${escHtml(res.text.substring(0, 500))}</div>` : ''}
-                ${res?.fields ? `<pre>${escHtml(JSON.stringify(res.fields, null, 2))}</pre>` : ''}
-                ${res?.categoria_sugerida ? `<div>Categoría: <strong>${escHtml(res.categoria_sugerida)}</strong> (${Math.round((res.confianza||0)*100)}%)</div>` : ''}
-                ${res?.excepciones?.length ? `<div style="color:var(--yellow)">${res.excepciones.map(e=>`⚠ ${escHtml(e.mensaje||String(e))}`).join('<br>')}</div>` : ''}
+                ${renderAgentBody(a, res, docId)}
               </div>
             </div>`;
         }).join('')}
@@ -2936,7 +3059,7 @@ function renderAgentesGrid() {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         <span style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:20px">
-          🖥 ${escHtml(a.modelo || 'N/A')}
+          \ud83d\udda5 ${a.modelo === 'tesseract' ? 'OCR Tesseract' : 'Motor IA local'}
         </span>
         <span style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:20px">
           ${CONTEXTO_LABELS[a.contexto] || a.contexto || 'N/A'}

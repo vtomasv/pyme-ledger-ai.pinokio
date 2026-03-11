@@ -896,6 +896,14 @@ class DocumentPipelineAgent:
             "classification": {},          # Salida del Agente Clasificador
             "audit": {},                   # Salida del Agente Auditor
             "saved": False,
+            # Resultados individuales por agente (para mostrar en el modal de detalle)
+            "agent_results": {
+                "ocr": {},
+                "vision": {},
+                "extractor": {},
+                "clasificador": {},
+                "auditor": {}
+            }
         }
 
         # ── PASO 1: OCR ───────────────────────────────────────────────────────
@@ -914,6 +922,13 @@ class DocumentPipelineAgent:
 
             ctx["ocr_text"] = ocr_result["text"]
             ctx["combined_text"] = ocr_result["text"]
+            # Guardar resultado del agente OCR
+            ctx["agent_results"]["ocr"] = {
+                "metodo": ocr_result.get("method", "tesseract"),
+                "palabras": ocr_result.get("words", 0),
+                "texto_preview": ocr_result["text"][:500] if ocr_result["text"] else "",
+                "campos_detectados": {}  # OCR no extrae campos estructurados
+            }
 
             yield self._emit("ocr", "done", {
                 "title": "Agente OCR completado",
@@ -979,6 +994,14 @@ class DocumentPipelineAgent:
                 for k, v in ctx["vision_fields"].items():
                     if k not in ctx["fields"] or not ctx["fields"][k]:
                         ctx["fields"][k] = v
+
+                # Guardar resultado del agente Visual con herencia del OCR
+                ctx["agent_results"]["vision"] = {
+                    "modelo": vision_model_to_use,
+                    "campos_detectados": {k: str(v) for k, v in ctx["vision_fields"].items()},
+                    "texto_adicional": ctx["vision_text"][:300] if ctx["vision_text"] else "",
+                    "heredado_de_ocr": ctx["agent_results"]["ocr"].get("campos_detectados", {})
+                }
 
                 yield self._emit("vision", "done", {
                     "title": "Agente Visual completado",
@@ -1056,6 +1079,15 @@ class DocumentPipelineAgent:
             ctx["fields"] = {
                 k: v for k, v in ctx["fields"].items()
                 if v is not None and v != "" and str(v) not in ("null", "None")
+            }
+
+            # Guardar resultado del agente Extractor con herencia de Vision y OCR
+            ctx["agent_results"]["extractor"] = {
+                "modelo": extractor_model_to_use or "regex",
+                "campos_detectados": {k: str(v) for k, v in ctx["fields"].items()},
+                "campos_regex": {k: str(v) for k, v in regex_fields.items()},
+                "heredado_de_vision": ctx["agent_results"].get("vision", {}).get("campos_detectados", {}),
+                "heredado_de_ocr": ctx["agent_results"].get("ocr", {}).get("campos_detectados", {})
             }
 
             yield self._emit("extraction", "done", {
@@ -1167,6 +1199,15 @@ class DocumentPipelineAgent:
                                 break
 
             ctx["classification"] = classification
+
+            # Guardar resultado del agente Clasificador con herencia del Extractor
+            ctx["agent_results"]["clasificador"] = {
+                "modelo": cfg_classifier.get("modelo", "llama3.2:3b"),
+                "categoria_sugerida": classification.get("categoria_sugerida"),
+                "confianza": classification.get("confianza", 0.0),
+                "razon": classification.get("razon", ""),
+                "heredado_de_extractor": ctx["agent_results"].get("extractor", {}).get("campos_detectados", {})
+            }
 
             yield self._emit("classification", "done", {
                 "title": "Agente Clasificador completado",
@@ -1294,6 +1335,18 @@ class DocumentPipelineAgent:
                 "hash": file_hash,
                 "excepciones": excepciones,
                 "requiere_revision": requiere_revision
+            }
+
+            # Guardar resultado del agente Auditor — tiene acceso a TODO el pipeline
+            ctx["agent_results"]["auditor"] = {
+                "modelo": cfg_auditor.get("modelo", "llama3.2:3b"),
+                "excepciones": excepciones,
+                "requiere_revision": requiere_revision,
+                "hash": file_hash,
+                # El auditor tiene la verdad consolidada de todos los agentes
+                "campos_finales": {k: str(v) for k, v in ctx["fields"].items()},
+                "categoria_final": ctx["classification"].get("categoria_sugerida"),
+                "confianza_final": ctx["classification"].get("confianza", 0.0)
             }
 
             yield self._emit("audit", "done", {
@@ -1462,7 +1515,11 @@ class DocumentPipelineAgent:
             ruta_archivo_original=str(file_path),
             hash_documento=file_hash,
             texto_extraido=ctx["combined_text"][:5000] if ctx["combined_text"] else "",
-            campos_extraidos=json.dumps(fields, ensure_ascii=False),
+            # Guardar tanto los campos consolidados como los resultados por agente
+            campos_extraidos=json.dumps({
+                "campos": fields,
+                "agent_results": ctx.get("agent_results", {})
+            }, ensure_ascii=False),
             excepciones=json.dumps(audit.get("excepciones", []), ensure_ascii=False),
         )
 
