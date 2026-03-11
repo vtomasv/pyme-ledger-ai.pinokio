@@ -1016,24 +1016,40 @@ a:hover { text-decoration: underline; }
 
 <!-- Modal Nueva Empresa -->
 <div class="modal-overlay" id="empresaModal">
-  <div class="modal" style="max-width:480px">
+  <div class="modal" style="max-width:560px">
     <div class="modal-header">
       <div class="modal-title">🏢 Nueva Empresa</div>
       <div class="modal-close" onclick="closeModal('empresaModal')">✕</div>
     </div>
     <div class="modal-body">
+      <!-- Asistente guía dentro del modal -->
+      <div id="empAssistBubble" style="background:var(--bg3);border:1px solid var(--accent3);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;display:flex;gap:10px;align-items:flex-start">
+        <div style="font-size:22px;flex-shrink:0">🤖</div>
+        <div>
+          <div style="font-size:11px;color:var(--accent2);font-weight:600;margin-bottom:4px">Ledger AI</div>
+          <div id="empAssistText" style="color:var(--text);font-size:13px;line-height:1.5">¡Hola! Voy a ayudarte a registrar tu empresa. Empieza ingresando la <strong>razón social</strong> — el nombre legal completo de tu negocio.</div>
+        </div>
+      </div>
+
       <div class="form-group">
         <label class="form-label">Razón Social *</label>
-        <input class="form-input" id="empRazonSocial" placeholder="Ej: Mi Empresa SpA"/>
+        <input class="form-input" id="empRazonSocial" placeholder="Ej: Mi Empresa SpA"
+          oninput="onEmpRazonSocialInput(this.value)"
+          onfocus="setEmpAssist('Escribe el nombre legal de tu empresa tal como aparece en el SII o registro mercantil. Ej: Comercial Los Andes Ltda.')"/>
       </div>
+
       <div class="form-row">
-        <div class="form-group">
+        <div class="form-group" style="position:relative">
           <label class="form-label">RUT / RUC</label>
-          <input class="form-input" id="empRut" placeholder="77.194.706-9"/>
+          <input class="form-input" id="empRut" placeholder="77.194.706-9"
+            oninput="onEmpRutInput(this.value)"
+            onfocus="setEmpAssist('Ingresa el RUT de tu empresa. Para Chile usa el formato 77.194.706-9. El dígito verificador puede ser un número o la letra K.')"/>
+          <div id="empRutStatus" style="position:absolute;right:10px;top:32px;font-size:16px"></div>
         </div>
         <div class="form-group">
           <label class="form-label">País</label>
-          <select class="form-select" id="empPais">
+          <select class="form-select" id="empPais" onchange="onEmpPaisChange(this.value)"
+            onfocus="setEmpAssist('Selecciona el país donde opera tu empresa. Esto determina el formato del RUT y la moneda predeterminada.')">
             <option value="Chile">Chile</option>
             <option value="Peru">Perú</option>
             <option value="Mexico">México</option>
@@ -1042,17 +1058,25 @@ a:hover { text-decoration: underline; }
           </select>
         </div>
       </div>
-      <div class="form-group">
+
+      <div class="form-group" style="position:relative">
         <label class="form-label">Giro / Actividad</label>
-        <input class="form-input" id="empGiro" placeholder="Ej: Venta de Equipos Computacionales"/>
+        <input class="form-input" id="empGiro" placeholder="Ej: Venta de Equipos Computacionales"
+          oninput="onEmpGiroInput(this.value)"
+          onfocus="setEmpAssist('El giro es la actividad económica principal de tu empresa. Es clave para que el agente IA clasifique correctamente tus gastos.')"
+          autocomplete="off"/>
+        <div id="empGiroSuggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg4);border:1px solid var(--border2);border-radius:var(--radius-xs);z-index:100;max-height:180px;overflow-y:auto"></div>
       </div>
+
       <div class="form-group">
         <label class="form-label">Moneda Base</label>
-        <select class="form-select" id="empMoneda">
+        <select class="form-select" id="empMoneda"
+          onfocus="setEmpAssist('La moneda base se usará para todos los reportes y totales. Puedes cambiarla después desde Administración.')">
           <option value="CLP">CLP — Peso Chileno</option>
           <option value="PEN">PEN — Sol Peruano</option>
           <option value="MXN">MXN — Peso Mexicano</option>
           <option value="USD">USD — Dólar</option>
+          <option value="ARS">ARS — Peso Argentino</option>
         </select>
       </div>
     </div>
@@ -2524,6 +2548,119 @@ async function selectEmpresa(id) {
   await loadCategorias();
   renderAdmin();
   showToast(`Empresa activa: ${state.empresa.razon_social}`, 'info');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EMPRESA MODAL — Asistente guía + autocomplete + validación RUT
+// ═══════════════════════════════════════════════════════════════
+const GIROS_SUGERIDOS = [
+  'Venta al por menor de alimentos y bebidas',
+  'Venta al por menor de ropa y accesorios',
+  'Venta al por menor de equipos computacionales',
+  'Servicios de consultoría empresarial',
+  'Servicios de contabilidad y auditoría',
+  'Servicios de marketing y publicidad',
+  'Servicios de desarrollo de software',
+  'Servicios de transporte de carga',
+  'Servicios de mantención y reparación',
+  'Restaurante y servicios de alimentación',
+  'Construcción y obras civiles',
+  'Fabricación de productos metálicos',
+  'Actividades de salud y medicina',
+  'Educación y capacitación',
+  'Servicios inmobiliarios',
+  'Servicios de seguridad',
+  'Agricultura y ganadería',
+  'Comercio de vehículos y repuestos',
+  'Servicios financieros y seguros',
+  'Turismo y hotelería',
+];
+
+function setEmpAssist(msg) {
+  const el = document.getElementById('empAssistText');
+  if (el) el.innerHTML = msg;
+}
+
+function onEmpRazonSocialInput(val) {
+  if (val.length > 3) {
+    setEmpAssist(`Bien! <strong>${escHtml(val)}</strong> — ahora ingresa el RUT de tu empresa para que el agente pueda identificarla en los documentos.`);
+  }
+}
+
+function validateRutChile(rut) {
+  rut = rut.replace(/\./g, '').replace(/-/g, '');
+  if (!/^[0-9]+[0-9Kk]$/.test(rut) || rut.length < 7) return false;
+  const body = rut.slice(0, -1);
+  let dv = rut.slice(-1).toUpperCase();
+  let sum = 0, factor = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    sum += parseInt(body[i]) * factor;
+    factor = factor === 7 ? 2 : factor + 1;
+  }
+  const expected = 11 - (sum % 11);
+  const expectedDv = expected === 11 ? '0' : expected === 10 ? 'K' : String(expected);
+  return dv === expectedDv;
+}
+
+function formatRutChile(val) {
+  val = val.replace(/[^0-9kK]/g, '');
+  if (val.length > 1) {
+    const body = val.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    val = body + '-' + val.slice(-1).toUpperCase();
+  }
+  return val;
+}
+
+function onEmpRutInput(val) {
+  const pais = document.getElementById('empPais')?.value;
+  const input = document.getElementById('empRut');
+  const status = document.getElementById('empRutStatus');
+  if (pais === 'Chile' && val.length > 5) {
+    const formatted = formatRutChile(val.replace(/[^0-9kK]/g, ''));
+    if (formatted !== val) { input.value = formatted; val = formatted; }
+    const valid = validateRutChile(val);
+    if (status) status.textContent = valid ? '✅' : '❌';
+    if (valid) {
+      setEmpAssist(`RUT válido ✅ Ahora indica el <strong>giro</strong> de tu empresa — el agente IA lo usará para clasificar gastos automáticamente.`);
+    } else if (val.length > 8) {
+      setEmpAssist(`El RUT ingresado no es válido. Verifica el dígito verificador. Formato: <strong>77.194.706-9</strong>`);
+    }
+  } else {
+    if (status) status.textContent = '';
+  }
+}
+
+function onEmpPaisChange(pais) {
+  const moneda = document.getElementById('empMoneda');
+  const rutInput = document.getElementById('empRut');
+  const map = { 'Chile':'CLP','Peru':'PEN','Mexico':'MXN','Colombia':'COP','Argentina':'ARS' };
+  if (moneda && map[pais]) {
+    for (let opt of moneda.options) if (opt.value === map[pais]) { opt.selected = true; break; }
+  }
+  const placeholders = { 'Chile':'77.194.706-9','Peru':'20123456789','Mexico':'ABC123456XYZ','Colombia':'900123456-7','Argentina':'30-12345678-9' };
+  if (rutInput && placeholders[pais]) rutInput.placeholder = placeholders[pais];
+  setEmpAssist(`País: <strong>${pais}</strong>. La moneda base se actualizó automáticamente. Ingresa el identificador fiscal de tu empresa.`);
+}
+
+function onEmpGiroInput(val) {
+  const container = document.getElementById('empGiroSuggestions');
+  if (!container) return;
+  if (val.length < 2) { container.style.display = 'none'; return; }
+  const matches = GIROS_SUGERIDOS.filter(g => g.toLowerCase().includes(val.toLowerCase())).slice(0, 6);
+  if (!matches.length) { container.style.display = 'none'; return; }
+  container.innerHTML = matches.map(g => `
+    <div onclick="selectGiro('${escHtml(g)}')" style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);border-bottom:1px solid var(--border);"
+      onmouseover="this.style.background='var(--bg5)'" onmouseout="this.style.background=''">🏷 ${escHtml(g)}</div>
+  `).join('');
+  container.style.display = 'block';
+}
+
+function selectGiro(giro) {
+  const input = document.getElementById('empGiro');
+  const container = document.getElementById('empGiroSuggestions');
+  if (input) input.value = giro;
+  if (container) container.style.display = 'none';
+  setEmpAssist(`Giro seleccionado: <strong>${escHtml(giro)}</strong> ✅ El agente IA usará este giro para validar que los gastos correspondan al rubro de tu empresa.`);
 }
 
 async function createEmpresa() {
