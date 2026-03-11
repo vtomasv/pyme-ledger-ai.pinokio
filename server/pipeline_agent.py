@@ -396,8 +396,9 @@ def _extract_by_regex(text: str) -> Dict:
         except Exception:
             return None
 
-    # Total
+    # Total — múltiples formatos latinoamericanos
     total_patterns = [
+        # Formatos explícitos con label
         r'TOTAL\s+S/\.?\s*([\d,\.]{3,})',
         r'TOTAL\s+S/\s*([\d,\.]{3,})',
         r'Total\s*[:\s]\s*\$?\s*([\d\.]{3,})',
@@ -405,13 +406,40 @@ def _extract_by_regex(text: str) -> Dict:
         r'IMPORTE\s+TOTAL\s*[:\s]\s*([\d,\.]{3,})',
         r'MONTO\s+TOTAL\s*[:\s]\s*([\d,\.]{3,})',
         r'Total\s+a\s+pagar\s*[:\s]\s*([\d,\.]{3,})',
+        r'TOTAL\s+A\s+PAGAR\s*[:\s]\s*([\d,\.]{3,})',
+        r'TOTAL\s+VENTA\s*[:\s]\s*([\d,\.]{3,})',
+        r'TOTAL\s+FACTURA\s*[:\s]\s*([\d,\.]{3,})',
+        r'TOTAL\s+BOLETA\s*[:\s]\s*([\d,\.]{3,})',
+        # TOTAL SI (formato peruano)
+        r'TOTAL\s+SI\s*[:\s]?\s*([\d,\.]{3,})',
+        # Total seguido de número en la misma línea (sin dos puntos)
+        r'^\s*Total\s+(\d[\d\.]{2,})\s*$',
+        r'^\s*TOTAL\s+(\d[\d\.]{2,})\s*$',
+        # Formato tabla: Total al final de línea con espacios
+        r'Total[\s\t]+(\d[\d\.]{2,})\s*$',
+        r'TOTAL[\s\t]+(\d[\d\.]{2,})\s*$',
+        # Monto con $ al final de línea (boletas chilenas)
+        r'Total[:\s]*\$\s*(\d[\d\.]{2,})',
+        r'TOTAL[:\s]*\$\s*(\d[\d\.]{2,})',
     ]
     for p in total_patterns:
-        m = re.search(p, text, re.I)
+        m = re.search(p, text, re.I | re.MULTILINE)
         if m:
             val = parse_amount(m.group(1))
             if val and val > 10:
                 fields["monto_total"] = val
+                break
+    # Fallback: si no se encontró total, buscar el número más grande en líneas con 'total'
+    if "monto_total" not in fields:
+        for line in text.split('\n'):
+            if re.search(r'total', line, re.I):
+                nums = re.findall(r'[\d][\d\.]{2,}', line)
+                for n in nums:
+                    val = parse_amount(n)
+                    if val and val > 100:
+                        fields["monto_total"] = val
+                        break
+            if "monto_total" in fields:
                 break
 
     # IVA — buscar en línea propia con el label "Iva:" o "IVA:"
@@ -508,27 +536,23 @@ def _extract_by_regex(text: str) -> Dict:
 
 # ── Prompts para LLM ──────────────────────────────────────────────────────────
 
-EXTRACTION_PROMPT = """Eres un experto contable latinoamericano. Analiza el siguiente texto extraído de un documento contable (factura, boleta, recibo, nota de crédito, etc.) y extrae los campos en formato JSON.
+EXTRACTION_PROMPT = """Extrae datos de este documento contable y devuelve JSON.
 
-TEXTO DEL DOCUMENTO:
+REGLAS IMPORTANTES:
+- monto_total: busca la palabra TOTAL o Total seguida de un número. Ese número es el monto total.
+- monto_neto: busca Neto, Monto Neto, Subtotal o Base Imponible.
+- iva: busca IVA, I.V.A., IGV seguido de un número.
+- Si ves "Total: 238" entonces monto_total=238.
+- Si ves "Total 238" entonces monto_total=238.
+- Los montos son SOLO números, sin $, sin puntos de miles, sin texto.
+- rut_proveedor: formato XX.XXX.XXX-X o XXXXXXXX-X.
+- fecha_emision: formato YYYY-MM-DD.
+
+TEXTO:
 {text}
 
-Extrae EXACTAMENTE estos campos (usa null si no encuentras el valor):
-{{
-  "tipo_documento": "FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO",
-  "proveedor": "nombre del emisor/vendedor",
-  "rut_proveedor": "RUT o RUC del emisor (ej: 77194706-9)",
-  "fecha_emision": "YYYY-MM-DD",
-  "folio": "número de documento/folio",
-  "descripcion": "descripción del producto o servicio",
-  "monto_neto": número sin IVA (solo número, sin símbolos),
-  "iva": monto del IVA (solo número),
-  "monto_total": monto total (solo número),
-  "moneda": "CLP|USD|EUR|PEN|MXN|ARS",
-  "categoria_sugerida": "categoría contable sugerida"
-}}
-
-Responde SOLO con el JSON, sin explicaciones."""
+Devuelve SOLO este JSON (sin texto adicional, sin markdown):
+{{"tipo_documento":"FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO","proveedor":"nombre emisor o null","rut_proveedor":"RUT o null","fecha_emision":"YYYY-MM-DD o null","folio":"numero o null","descripcion":"descripcion o null","monto_neto":numero_o_null,"iva":numero_o_null,"monto_total":numero_o_null,"moneda":"CLP"}}"""
 
 VISION_EXTRACTION_PROMPT = """Eres un experto en documentos contables latinoamericanos. Analiza esta imagen de un documento (factura, boleta, recibo) y extrae toda la información visible.
 
@@ -776,11 +800,14 @@ class DocumentPipelineAgent:
                     timeout=90
                 )
                 llm_fields = _parse_json_response(llm_resp)
-                # LLM tiene prioridad para campos no encontrados por regex
+                # LLM tiene prioridad para monto_total y campos no encontrados por regex
+                PRIORITY_FIELDS = {"monto_total", "monto_neto", "iva", "proveedor", "descripcion"}
                 for k, v in llm_fields.items():
                     if v is not None and v not in ("", "null", "None"):
-                        # Solo sobrescribir si el campo está vacío o es más específico
-                        if k not in ctx["fields"] or not ctx["fields"][k]:
+                        # Para campos de monto y proveedor, LLM siempre tiene prioridad
+                        if k in PRIORITY_FIELDS:
+                            ctx["fields"][k] = v
+                        elif k not in ctx["fields"] or not ctx["fields"][k]:
                             ctx["fields"][k] = v
 
             # Limpiar nulls y strings vacíos

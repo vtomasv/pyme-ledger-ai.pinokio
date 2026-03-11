@@ -481,23 +481,36 @@ async def get_document(empresa_id: str, doc_id: str):
             except:
                 pass
         
+        # Determinar extensión para preview
+        ruta = doc.ruta_archivo_original or ""
+        ext = Path(ruta).suffix.lower().lstrip('.') if ruta else ""
+        estado_val = doc.estado_revision.value.lower() if doc.estado_revision else "pendiente"
         return {
             "id": doc.id,
             "fecha": doc.fecha_emision.isoformat() if doc.fecha_emision else None,
+            "fecha_emision": doc.fecha_emision.isoformat() if doc.fecha_emision else None,
             "tipo": doc.tipo_documento.value if doc.tipo_documento else None,
+            "tipo_documento": doc.tipo_documento.value if doc.tipo_documento else None,
             "proveedor": doc.proveedor,
             "rut": doc.rut_proveedor,
+            "rut_proveedor": doc.rut_proveedor,
             "folio": doc.folio,
             "monto_neto": doc.monto_neto,
             "iva": doc.iva,
             "monto_total": doc.monto_total,
             "moneda": doc.moneda,
             "categoria": doc.categoria.nombre if doc.categoria else None,
+            "categoria_nombre": doc.categoria.nombre if doc.categoria else None,
+            "categoria_id": doc.categoria_id,
             "centro_costo": doc.centro_costo.nombre if doc.centro_costo else None,
             "confianza": doc.confianza_clasificacion,
-            "estado": doc.estado_revision.value if doc.estado_revision else None,
+            "estado": estado_val,
+            "estado_revision": estado_val,
             "excepciones": excepciones,
-            "texto_extraido": doc.texto_extraido[:500] if doc.texto_extraido else None
+            "texto_extraido": doc.texto_extraido[:500] if doc.texto_extraido else None,
+            "ruta_archivo_original": ruta,
+            "tipo_archivo": ext,
+            "nombre_archivo": Path(ruta).name if ruta else (doc.id + ".pdf")
         }
     finally:
         db.close()
@@ -752,6 +765,157 @@ async def download_document(doc_id: str):
         return FileResponse(path=str(file_path), filename=filename, media_type="application/octet-stream")
     finally:
         db.close()
+
+
+# ============================================================
+# Endpoints: Configuración de Agentes IA
+# ============================================================
+
+DEFAULT_AGENTS = [
+    {
+        "id": "ocr",
+        "nombre": "Agente OCR",
+        "descripcion": "Extrae texto de imágenes y PDFs usando Tesseract y EasyOCR",
+        "icono": "🔍",
+        "tipo": "ocr",
+        "modelo": "tesseract",
+        "contexto": "por_documento",
+        "prompt": "",
+        "parametros": {
+            "psm": 6,
+            "lang": "spa+eng",
+            "dpi": 300,
+            "enhance_contrast": True
+        }
+    },
+    {
+        "id": "vision",
+        "nombre": "Agente Visual",
+        "descripcion": "Analiza visualmente el documento con IA para extraer campos adicionales",
+        "icono": "👁",
+        "tipo": "vision",
+        "modelo": "moondream",
+        "contexto": "por_documento",
+        "prompt": "Analyze this document image and extract all visible information including: document type, provider name, RUT/tax ID, date, invoice number, amounts (net, tax, total), currency. Return as JSON.",
+        "parametros": {
+            "timeout": 120,
+            "temperature": 0.1,
+            "max_tokens": 512
+        }
+    },
+    {
+        "id": "extractor",
+        "nombre": "Agente Extractor",
+        "descripcion": "Extrae campos estructurados del texto usando IA y expresiones regulares",
+        "icono": "🧠",
+        "tipo": "extractor",
+        "modelo": "qwen3.5:0.8b",
+        "contexto": "por_documento",
+        "prompt": "Eres un experto contable latinoamericano. Analiza el siguiente texto extraído de un documento contable y extrae los campos en formato JSON.\n\nTEXTO DEL DOCUMENTO:\n{text}\n\nExtrae EXACTAMENTE estos campos (usa null si no encuentras el valor):\n{{\n  \"tipo_documento\": \"FACTURA|BOLETA|RECIBO|NOTA_CREDITO|OTRO\",\n  \"proveedor\": \"nombre del emisor/vendedor\",\n  \"rut_proveedor\": \"RUT o RUC del emisor (ej: 77194706-9)\",\n  \"fecha_emision\": \"YYYY-MM-DD\",\n  \"folio\": \"número de documento/folio\",\n  \"descripcion\": \"descripción del producto o servicio\",\n  \"monto_neto\": numero sin IVA (solo número, sin símbolos),\n  \"iva\": monto del IVA (solo número),\n  \"monto_total\": monto total (solo número),\n  \"moneda\": \"CLP|USD|EUR|PEN|MXN|ARS\"\n}}\n\nResponde SOLO con el JSON, sin explicaciones.",
+        "parametros": {
+            "timeout": 90,
+            "temperature": 0.1,
+            "max_tokens": 512
+        }
+    },
+    {
+        "id": "clasificador",
+        "nombre": "Agente Clasificador",
+        "descripcion": "Clasifica el gasto en categorías contables usando IA y palabras clave",
+        "icono": "🏷",
+        "tipo": "clasificador",
+        "modelo": "qwen3.5:0.8b",
+        "contexto": "por_documento",
+        "prompt": "Eres un contador experto. Clasifica este gasto empresarial en la categoría contable más apropiada.\n\nINFORMACION DEL GASTO:\n- Proveedor: {proveedor}\n- Descripción: {descripcion}\n- Tipo documento: {tipo_documento}\n- Monto: {monto_total} {moneda}\n\nCATEGORÍAS DISPONIBLES:\n{categorias}\n\nResponde en JSON:\n{{\n  \"categoria\": \"nombre exacto de la categoría\",\n  \"confianza\": 0.0 a 1.0,\n  \"razon\": \"explicación breve de por qué esta categoría\"\n}}\n\nResponde SOLO con el JSON.",
+        "parametros": {
+            "timeout": 60,
+            "temperature": 0.1,
+            "max_tokens": 256
+        }
+    },
+    {
+        "id": "auditor",
+        "nombre": "Agente Auditor",
+        "descripcion": "Detecta duplicados, anomalías y valida la coherencia del documento",
+        "icono": "🛡",
+        "tipo": "auditor",
+        "modelo": "reglas",
+        "contexto": "por_documento",
+        "prompt": "",
+        "parametros": {
+            "check_duplicates": True,
+            "check_amounts": True,
+            "check_dates": True,
+            "similarity_threshold": 0.85
+        }
+    },
+    {
+        "id": "recomendador",
+        "nombre": "Agente Recomendador",
+        "descripcion": "Analiza el historial de gastos y genera recomendaciones de optimización",
+        "icono": "💡",
+        "tipo": "recomendador",
+        "modelo": "qwen3.5:0.8b",
+        "contexto": "historial_mensual",
+        "prompt": "Eres un asesor financiero experto en PYMEs latinoamericanas. Analiza el siguiente resumen de gastos del mes y genera recomendaciones concretas de optimización.\n\nRESUMEN DE GASTOS:\n{resumen}\n\nGira de la empresa: {giro}\n\nGenera 3-5 recomendaciones priorizadas en JSON:\n[{{\"titulo\": \"...\", \"descripcion\": \"...\", \"ahorro_estimado\": \"...\", \"prioridad\": \"alta|media|baja\"}}]",
+        "parametros": {
+            "timeout": 120,
+            "temperature": 0.3,
+            "max_tokens": 1024,
+            "historial_meses": 3,
+            "compactar_despues_de": 1
+        }
+    }
+]
+
+_AGENTS_FILE = DATA_DIR / "agents_config.json"
+
+def _load_agents():
+    if _AGENTS_FILE.exists():
+        try:
+            return json.loads(_AGENTS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return DEFAULT_AGENTS
+
+def _save_agents(agents):
+    _AGENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _AGENTS_FILE.write_text(json.dumps(agents, indent=2, ensure_ascii=False), encoding="utf-8")
+
+@app.get("/api/agents")
+async def get_agents():
+    """Retorna la configuración de todos los agentes."""
+    return {"agents": _load_agents()}
+
+@app.put("/api/agents/{agent_id}")
+async def update_agent(agent_id: str, config: dict):
+    """Actualiza la configuración de un agente."""
+    from fastapi import Body
+    agents = _load_agents()
+    for i, a in enumerate(agents):
+        if a["id"] == agent_id:
+            agents[i].update(config)
+            agents[i]["id"] = agent_id  # Asegurar que el ID no cambie
+            _save_agents(agents)
+            # Si el modelo cambió, verificar disponibilidad
+            new_model = config.get("modelo", "")
+            if new_model and new_model not in ("tesseract", "reglas", "moondream"):
+                try:
+                    import requests as _req
+                    r = _req.get("http://localhost:11434/api/tags", timeout=3)
+                    models = [m["name"] for m in r.json().get("models", [])]
+                    if new_model not in models:
+                        return {"ok": True, "warning": f"Modelo '{new_model}' no encontrado en Ollama. Descarga con: ollama pull {new_model}"}
+                except Exception:
+                    pass
+            return {"ok": True, "agent": agents[i]}
+    raise HTTPException(status_code=404, detail=f"Agente '{agent_id}' no encontrado")
+
+@app.post("/api/agents/reset")
+async def reset_agents():
+    """Restaura la configuración por defecto de los agentes."""
+    _save_agents(DEFAULT_AGENTS)
+    return {"ok": True, "agents": DEFAULT_AGENTS}
 
 
 # ============================================================

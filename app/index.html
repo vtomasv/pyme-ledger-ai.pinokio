@@ -951,16 +951,19 @@ a:hover { text-decoration: underline; }
         <span class="nav-icon">💡</span>Recomendaciones
       </div>
       <div class="nav-sec">Config</div>
+      <div class="nav-item" data-s="agentes" onclick="showSection('agentes')">
+        <span class="nav-icon">🤖</span>Agentes IA
+      </div>
       <div class="nav-item" data-s="admin" onclick="showSection('admin')">
         <span class="nav-icon">⚙️</span>Administración
       </div>
     </div>
     <div class="sidebar-foot">
-      <div class="model-pill">
+      <div class="model-pill" onclick="showSection('agentes')" style="cursor:pointer" title="Ver configuración de agentes">
         <div class="model-dot" id="modelDot"></div>
         <div>
           <div style="font-weight:700;color:var(--text);font-size:11px" id="modelName">Detectando...</div>
-          <div style="color:var(--text3);font-size:10px">qwen3.5:0.8b</div>
+          <div style="color:var(--text3);font-size:10px" id="modelSubtitle">Motor IA local</div>
         </div>
       </div>
     </div>
@@ -1150,16 +1153,21 @@ async function checkOllamaStatus() {
     if (r.ok) {
       const d = await r.json();
       const models = (d.models || []).map(m => m.name);
-      const qwen = models.find(m => m.toLowerCase().includes('qwen'));
-      const name = qwen || models[0] || null;
-      document.getElementById('modelName').textContent = name ? name.split(':')[0] : 'Sin modelos';
-      document.getElementById('modelDot').className = 'model-dot ' + (name ? 'online' : 'offline');
-      state.ollamaOnline = !!name;
+      const hasModel = models.length > 0;
+      document.getElementById('modelName').textContent = hasModel ? 'Motor IA activo' : 'Sin modelos';
+      document.getElementById('modelDot').className = 'model-dot ' + (hasModel ? 'online' : 'offline');
+      const sub = document.getElementById('modelSubtitle');
+      if (sub) sub.textContent = hasModel ? `${models.length} modelo(s) disponible(s)` : 'Sin modelos instalados';
+      state.ollamaOnline = hasModel;
+      state.ollamaModels = models;
     }
   } catch(e) {
-    document.getElementById('modelName').textContent = 'Ollama offline';
+    document.getElementById('modelName').textContent = 'Motor IA offline';
     document.getElementById('modelDot').className = 'model-dot offline';
+    const sub = document.getElementById('modelSubtitle');
+    if (sub) sub.textContent = 'Ollama no detectado';
     state.ollamaOnline = false;
+    state.ollamaModels = [];
   }
 }
 
@@ -1184,6 +1192,7 @@ function showSection(s) {
     documentos:      ['Documentos', 'Gestión y revisión de gastos'],
     analitica:       ['Analítica', 'Análisis profundo de gastos'],
     recomendaciones: ['Recomendaciones', 'Optimización de gastos con IA'],
+    agentes:         ['Agentes IA', 'Configuración de prompts y parámetros de cada agente'],
     admin:           ['Administración', 'Empresas y categorías contables'],
   };
   const [t, sub] = titles[s] || ['', ''];
@@ -1195,6 +1204,7 @@ function showSection(s) {
     documentos:      renderDocumentos,
     analitica:       renderAnalitica,
     recomendaciones: renderRecomendaciones,
+    agentes:         renderAgentes,
     admin:           renderAdmin,
   };
   if (fns[s]) fns[s]();
@@ -1253,8 +1263,8 @@ async function sendAssistantMsg() {
     showSection('dashboard');
   } else if (lower.includes('ollama') || lower.includes('modelo') || lower.includes('ia')) {
     resp = state.ollamaOnline
-      ? 'Ollama está activo y el modelo qwen3.5:0.8b está disponible. Todo el procesamiento es 100% local y offline.'
-      : 'Ollama no está detectado. Asegúrate de que Ollama esté corriendo y que qwen3.5:0.8b esté descargado.';
+      ? 'El motor IA está activo. Todo el procesamiento es 100% local y offline.'
+      : 'El motor IA no está detectado. Asegúrate de que Ollama esté corriendo. Puedes verificarlo en Agentes IA.';
   } else {
     resp = 'Entendido. Puedo ayudarte con documentos, categorías, análisis de gastos y configuración. ¿Qué necesitas específicamente?';
   }
@@ -1767,8 +1777,8 @@ function renderNuevoGasto() {
           <div style="display:flex;flex-direction:column;gap:8px">
             ${[
               { icon: '🔍', name: 'Agente OCR', desc: 'Tesseract multi-PSM' },
-              { icon: '🧠', name: 'Agente Extractor', desc: 'qwen3.5:0.8b + regex' },
-              { icon: '🏷', name: 'Agente Clasificador', desc: 'qwen3.5:0.8b + keywords' },
+              { icon: '🧠', name: 'Agente Extractor', desc: 'Motor IA + regex' },
+              { icon: '🏷', name: 'Agente Clasificador', desc: 'Motor IA + keywords' },
               { icon: '🛡', name: 'Agente Auditor', desc: 'Duplicados y anomalías' },
             ].map(a => `
               <div style="display:flex;align-items:center;gap:9px;padding:9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm)">
@@ -1789,7 +1799,7 @@ function renderNuevoGasto() {
           </div>
           <div class="insight-card info">
             <div class="ic-title">🔄 Procesamiento offline</div>
-            Todo se procesa localmente con qwen3.5:0.8b. Sin internet requerido.
+            Todo se procesa localmente con tu motor IA. Sin internet requerido.
           </div>
           <div class="insight-card success">
             <div class="ic-title">✓ Formatos soportados</div>
@@ -2155,7 +2165,7 @@ function setDocFilter(f) {
 function filterDocs() {
   const q = (document.getElementById('docSearch')?.value || '').toLowerCase();
   let docs = state.documentos;
-  if (_docFilter !== 'all') docs = docs.filter(d => d.estado_revision === _docFilter);
+  if (_docFilter !== 'all') docs = docs.filter(d => (d.estado_revision || 'pendiente').toLowerCase() === _docFilter);
   if (q) docs = docs.filter(d =>
     (d.proveedor || '').toLowerCase().includes(q) ||
     (d.folio || '').toLowerCase().includes(q) ||
@@ -2191,7 +2201,7 @@ function renderDocGrid(docs) {
                 loading="lazy"/>
                <div class="dt-icon" style="display:none">🖼</div>`
             : `<div class="dt-icon">📄</div>`}
-          <span class="doc-status badge badge-${doc.estado_revision || 'pendiente'}">
+          <span class="doc-status badge badge-${(doc.estado_revision || 'pendiente').toLowerCase()}">
             ${statusLabel(doc.estado_revision)}
           </span>
         </div>
@@ -2215,19 +2225,33 @@ async function openDocModal(docId) {
   try {
     const r = await fetch(`${API}/api/empresas/${state.empresa.id}/documentos/${docId}`);
     const doc = await r.json();
-    const ext = (doc.ruta_archivo_original || '').split('.').pop().toLowerCase();
+    // Usar tipo_archivo devuelto por el servidor (ya calculado)
+    const ext = (doc.tipo_archivo || doc.ruta_archivo_original || '').split('.').pop().toLowerCase();
     const isImg = ['jpg', 'jpeg', 'png', 'bmp', 'webp', 'tiff'].includes(ext);
+    const isPdf = ext === 'pdf';
     body.innerHTML = `
       <div class="doc-detail-grid">
         <div>
           <div class="doc-preview">
             ${isImg
               ? `<img src="${API}/api/documentos/${docId}/preview"
-                  style="max-width:100%;max-height:380px;object-fit:contain"
-                  onerror="this.parentNode.innerHTML='<div class=\\'no-preview\\'><div class=\\'np-icon\\'>📄</div><div>Vista previa no disponible</div></div>'"/>`
+                  style="max-width:100%;max-height:380px;object-fit:contain;border-radius:6px"
+                  onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+                 <div class='no-preview' style='display:none'><div class='np-icon'>📄</div><div>Vista previa no disponible</div></div>`
+              : isPdf
+              ? `<div style="position:relative">
+                  <img src="${API}/api/documentos/${docId}/preview"
+                    style="max-width:100%;max-height:380px;object-fit:contain;border-radius:6px"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+                  <div class='no-preview' style='display:none'>
+                    <div class='np-icon'>📄</div>
+                    <div style='font-size:12px;margin-bottom:10px'>Documento PDF</div>
+                    <a href='${API}/api/documentos/${docId}/download' class='btn btn-secondary btn-sm' download>⬇ Descargar</a>
+                  </div>
+                </div>`
               : `<div class="no-preview">
                   <div class="np-icon">📄</div>
-                  <div style="font-size:12px;margin-bottom:10px">Documento PDF</div>
+                  <div style="font-size:12px;margin-bottom:10px">Documento</div>
                   <a href="${API}/api/documentos/${docId}/download" class="btn btn-secondary btn-sm" download>⬇ Descargar</a>
                 </div>`}
           </div>
@@ -2285,9 +2309,9 @@ async function openDocModal(docId) {
           <div class="dfr">
             <div class="dfr-label">Estado</div>
             <select class="form-select" id="modalEstSel" style="margin-top:4px">
-              <option value="PENDIENTE" ${doc.estado_revision === 'pendiente' ? 'selected' : ''}>Pendiente</option>
-              <option value="REVISADO" ${doc.estado_revision === 'revisado' ? 'selected' : ''}>Aprobado</option>
-              <option value="RECHAZADO" ${doc.estado_revision === 'rechazado' ? 'selected' : ''}>Rechazado</option>
+              <option value="PENDIENTE" ${(!doc.estado_revision || doc.estado_revision.toLowerCase() === 'pendiente') ? 'selected' : ''}>Pendiente</option>
+              <option value="REVISADO" ${doc.estado_revision && doc.estado_revision.toLowerCase() === 'revisado' ? 'selected' : ''}>Aprobado</option>
+              <option value="RECHAZADO" ${doc.estado_revision && doc.estado_revision.toLowerCase() === 'rechazado' ? 'selected' : ''}>Rechazado</option>
             </select>
           </div>
           ${doc.excepciones && doc.excepciones.length > 0
@@ -2491,6 +2515,163 @@ async function renderRecomendaciones() {
   } catch(e) {
     document.getElementById('mainContent').innerHTML =
       `<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AGENTES IA — Configuración de prompts y parámetros
+// ═══════════════════════════════════════════════════════════════
+let _agentesData = [];
+let _agentEditId = null;
+
+async function renderAgentes() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = `<div style="text-align:center;padding:36px"><div class="spinner" style="margin:0 auto 10px"></div>Cargando agentes...</div>`;
+  try {
+    const r = await fetch(`${API}/api/agents`);
+    const d = await r.json();
+    _agentesData = d.agents || [];
+    renderAgentesGrid();
+  } catch(e) {
+    mc.innerHTML = `<div style="color:var(--red);padding:20px">Error cargando agentes: ${e.message}</div>`;
+  }
+}
+
+const CONTEXTO_LABELS = {
+  'por_documento': '📄 Por documento (contexto limpio en cada lectura)',
+  'historial_mensual': '📅 Historial mensual (memoria del mes, resumen al cambiar mes)',
+};
+
+function renderAgentesGrid() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="resetAgentes()">&#8635; Restaurar defaults</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px" id="agentesGrid"></div>
+    <div class="modal-overlay" id="agentModal" style="z-index:9999">
+      <div class="modal" style="max-width:680px;width:95vw;max-height:90vh;overflow-y:auto">
+        <div class="modal-head">
+          <div class="modal-title" id="agentModalTitle">Configurar Agente</div>
+          <button class="btn btn-ghost btn-sm" onclick="closeModal('agentModal')">&#x2715;</button>
+        </div>
+        <div id="agentModalBody" style="padding:20px"></div>
+        <div class="modal-foot" id="agentModalFoot"></div>
+      </div>
+    </div>
+  `;
+  const grid = document.getElementById('agentesGrid');
+  grid.innerHTML = _agentesData.map(a => `
+    <div class="card" style="cursor:pointer;transition:border-color .2s" onclick="openAgentModal('${a.id}')">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <span style="font-size:28px">${a.icono || '🤖'}</span>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:700">${escHtml(a.nombre)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${escHtml(a.descripcion || '')}</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openAgentModal('${a.id}')">Editar</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:20px">
+          🖥 ${escHtml(a.modelo || 'N/A')}
+        </span>
+        <span style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:20px">
+          ${CONTEXTO_LABELS[a.contexto] || a.contexto || 'N/A'}
+        </span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openAgentModal(agentId) {
+  const agent = _agentesData.find(a => a.id === agentId);
+  if (!agent) return;
+  _agentEditId = agentId;
+  document.getElementById('agentModalTitle').textContent = `${agent.icono || '🤖'} ${agent.nombre}`;
+  const body = document.getElementById('agentModalBody');
+  const params = agent.parametros || {};
+  const hasPrompt = agent.tipo !== 'ocr' && agent.tipo !== 'auditor';
+  body.innerHTML = `
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Modelo</label>
+      <input class="form-input" id="agentModel" value="${escHtml(agent.modelo || '')}" placeholder="ej: llama3.2, moondream, mistral" style="margin-top:4px"/>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">⚠ Cambia solo si sabes qué modelo usar. El modelo debe estar disponible en Ollama.</div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Contexto de memoria</label>
+      <select class="form-select" id="agentContexto" style="margin-top:4px">
+        <option value="por_documento" ${agent.contexto === 'por_documento' ? 'selected' : ''}>📄 Por documento — contexto limpio en cada lectura</option>
+        <option value="historial_mensual" ${agent.contexto === 'historial_mensual' ? 'selected' : ''}>📅 Historial mensual — memoria del mes, se compacta al cambiar mes</option>
+      </select>
+    </div>
+    ${hasPrompt ? `
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Prompt del sistema</label>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:6px">Variables disponibles: {text} (OCR), {proveedor}, {descripcion}, {tipo_documento}, {monto_total}, {moneda}, {categorias}, {resumen}, {giro}</div>
+      <textarea class="form-input" id="agentPrompt" rows="10" style="margin-top:4px;font-family:monospace;font-size:11px;resize:vertical">${escHtml(agent.prompt || '')}</textarea>
+    </div>` : `<div style="padding:12px;background:var(--bg3);border-radius:6px;font-size:12px;color:var(--text3);margin-bottom:16px">Este agente usa reglas deterministas, no requiere prompt.</div>`}
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Parámetros de ejecución</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px" id="agentParamsGrid">
+        ${Object.entries(params).map(([k, v]) => `
+          <div>
+            <label style="font-size:10px;color:var(--text3)">${escHtml(k)}</label>
+            <input class="form-input" data-param="${escHtml(k)}"
+              value="${escHtml(String(v))}" style="margin-top:2px;font-size:12px"/>
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+  const foot = document.getElementById('agentModalFoot');
+  foot.innerHTML = `
+    <button class="btn btn-secondary" onclick="closeModal('agentModal')">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveAgentConfig('${agentId}')">Guardar cambios</button>
+  `;
+  openModal('agentModal');
+}
+
+async function saveAgentConfig(agentId) {
+  const agent = _agentesData.find(a => a.id === agentId);
+  if (!agent) return;
+  const modelo = document.getElementById('agentModel').value.trim();
+  const contexto = document.getElementById('agentContexto').value;
+  const promptEl = document.getElementById('agentPrompt');
+  const prompt = promptEl ? promptEl.value : agent.prompt;
+  // Recoger parámetros
+  const params = {};
+  document.querySelectorAll('#agentParamsGrid [data-param]').forEach(inp => {
+    const k = inp.dataset.param;
+    const v = inp.value.trim();
+    // Intentar parsear como número o booleano
+    if (v === 'true') params[k] = true;
+    else if (v === 'false') params[k] = false;
+    else if (!isNaN(v) && v !== '') params[k] = Number(v);
+    else params[k] = v;
+  });
+  try {
+    const r = await fetch(`${API}/api/agents/${agentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelo, contexto, prompt, parametros: params })
+    });
+    const d = await r.json();
+    if (d.warning) showToast(d.warning, 'error');
+    else showToast('Configuración guardada', 'success');
+    closeModal('agentModal');
+    await renderAgentes();
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function resetAgentes() {
+  if (!confirm('¿Restaurar la configuración por defecto de todos los agentes?')) return;
+  try {
+    await fetch(`${API}/api/agents/reset`, { method: 'POST' });
+    showToast('Configuración restaurada', 'success');
+    await renderAgentes();
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
   }
 }
 
@@ -2741,7 +2922,9 @@ function showToast(msg, type = 'info') {
 }
 
 function statusLabel(s) {
-  return { pendiente: 'Pendiente', revisado: 'Aprobado', rechazado: 'Rechazado' }[s] || s || 'Pendiente';
+  if (!s) return 'Pendiente';
+  const sl = s.toLowerCase();
+  return { pendiente: 'Pendiente', revisado: 'Aprobado', rechazado: 'Rechazado' }[sl] || s || 'Pendiente';
 }
 
 function fieldLabel(k) {
