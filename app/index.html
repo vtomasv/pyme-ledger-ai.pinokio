@@ -1716,22 +1716,34 @@ function obGoApp() {
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════
-// Actualiza solo los datos del dashboard sin reconstruir el DOM completo
+// Actualiza los datos del dashboard sin reconstruir el DOM completo.
+// Si el dashboard no está montado (kpiGrid ausente), solo actualiza
+// la tabla de documentos recientes si está visible.
 async function refreshDashboardData() {
   if (!state.empresa) return;
-  // Si el dashboard no está montado, no hacer nada
-  if (!document.getElementById('kpiGrid')) return;
-  try {
-    const [dash, cats, trend] = await Promise.all([
-      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/dashboard`).then(r => r.json()),
-      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/categorias`).then(r => r.json()),
-      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/tendencias`).then(r => r.json()),
-    ]);
-    renderKPIs(dash);
-    renderCatChart(cats);
-    renderTrendChart(trend);
-    renderRecentDocs();
-  } catch(e) { console.error('refreshDashboardData error:', e); }
+  const kpiGrid = document.getElementById('kpiGrid');
+  const recentDocsEl = document.getElementById('recentDocs');
+
+  // Si el dashboard está montado: actualizar KPIs + gráficos + tabla recientes
+  if (kpiGrid) {
+    try {
+      const [dash, cats, trend] = await Promise.all([
+        fetch(`${API}/api/empresas/${state.empresa.id}/analytics/dashboard`).then(r => r.json()),
+        fetch(`${API}/api/empresas/${state.empresa.id}/analytics/categorias`).then(r => r.json()),
+        fetch(`${API}/api/empresas/${state.empresa.id}/analytics/tendencias`).then(r => r.json()),
+      ]);
+      renderKPIs(dash);
+      renderCatChart(cats);
+      renderTrendChart(trend);
+      if (recentDocsEl) renderRecentDocs();
+    } catch(e) { console.error('refreshDashboardData error:', e); }
+    return;
+  }
+
+  // Si solo está la tabla de recientes (dashboard parcialmente visible)
+  if (recentDocsEl) {
+    try { await renderRecentDocs(); } catch(e) {}
+  }
 }
 
 async function renderDashboard() {
@@ -2510,28 +2522,35 @@ async function saveEditField(fieldKey, docId) {
       if (editBtn) editBtn.style.display = '';
     }
 
-    // Actualizar state.documentos para que el listado y el dashboard reflejen el cambio
+    // ── Propagar cambio al state y a todos los renders visibles ──────────────
     // Los campos que devuelve el servidor son la fuente de verdad
     const updatedFields = {
       ...payload,
       monto_total: saved.monto_total ?? payload.monto_total,
-      monto_neto: saved.monto_neto ?? payload.monto_neto,
-      iva: saved.iva ?? payload.iva,
-      proveedor: saved.proveedor ?? payload.proveedor,
+      monto_neto:  saved.monto_neto  ?? payload.monto_neto,
+      iva:         saved.iva         ?? payload.iva,
+      proveedor:   saved.proveedor   ?? payload.proveedor,
     };
+
+    // 1. Actualizar state.documentos (fuente de verdad en memoria)
     if (!state.documentos) state.documentos = [];
     const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
     if (idx !== -1) {
-      // Documento ya está en el state — actualizar en sitio
       state.documentos[idx] = { ...state.documentos[idx], ...updatedFields };
     } else {
-      // Documento no estaba en state (modal abierto desde dashboard o búsqueda)
-      // Agregar un objeto mínimo para que el grid lo muestre correctamente
+      // Modal abierto desde dashboard o búsqueda — agregar al state
       state.documentos.push({ id: docId, ...updatedFields });
     }
-    // Re-renderizar el grid de documentos si está visible (sin destruir el modal)
+
+    // 2. Si el grid de documentos está visible, re-renderizarlo
     if (document.getElementById('docGrid')) filterDocs();
-    // Actualizar dashboard siempre (el usuario puede estar en cualquier sección)
+
+    // 3. Si el dashboard está montado, actualizar KPIs + tabla de recientes
+    //    (no depende de kpiGrid para la tabla de recientes)
+    if (document.getElementById('recentDocs')) {
+      renderRecentDocs();
+    }
+    // Actualizar KPIs solo si el dashboard está montado
     refreshDashboardData();
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
@@ -2598,7 +2617,8 @@ async function onDropToField(event, targetField, docId) {
       valEl.style.color = isAmount ? 'var(--accent2)' : '';
     }
 
-    // 4. Actualizar state.documentos para que el listado y dashboard reflejen el cambio
+    // ── Propagar cambio al state y a todos los renders visibles ──────────────
+    // 1. Actualizar state.documentos
     if (!state.documentos) state.documentos = [];
     const dropIdx = state.documentos.findIndex(d => String(d.id) === String(docId));
     if (dropIdx !== -1) {
@@ -2606,9 +2626,11 @@ async function onDropToField(event, targetField, docId) {
     } else {
       state.documentos.push({ id: docId, ...payload });
     }
-    // Re-renderizar el grid de documentos si está visible (sin destruir el modal)
+    // 2. Re-renderizar el grid de documentos si está visible
     if (document.getElementById('docGrid')) filterDocs();
-    // Actualizar dashboard siempre
+    // 3. Actualizar tabla de recientes si está montada
+    if (document.getElementById('recentDocs')) renderRecentDocs();
+    // 4. Actualizar KPIs si el dashboard está montado
     refreshDashboardData();
     showToast(`${targetField} actualizado desde ${campoOrigen || 'agente'}`, 'success');
   } catch(e) {
@@ -2982,7 +3004,16 @@ async function updateDocFromModal(docId) {
     );
     showToast('Documento actualizado', 'success');
     closeModal('docModal');
+    // Actualizar state y re-renderizar
+    if (state.documentos) {
+      const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
+      if (idx !== -1) {
+        state.documentos[idx] = { ...state.documentos[idx], estado_revision: estado, categoria_id: catId || null };
+      }
+    }
     if (state.currentSection === 'documentos') await loadDocumentos();
+    if (document.getElementById('recentDocs')) renderRecentDocs();
+    refreshDashboardData();
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
   }
@@ -3000,7 +3031,14 @@ async function updateDocStatus(docId, estado) {
     );
     showToast(estado === 'RECHAZADO' ? 'Rechazado' : 'Aprobado', estado === 'RECHAZADO' ? 'error' : 'success');
     closeModal('docModal');
+    // Actualizar state y re-renderizar
+    if (state.documentos) {
+      const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
+      if (idx !== -1) state.documentos[idx] = { ...state.documentos[idx], estado_revision: estado };
+    }
     if (state.currentSection === 'documentos') await loadDocumentos();
+    if (document.getElementById('recentDocs')) renderRecentDocs();
+    refreshDashboardData();
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
   }
