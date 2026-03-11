@@ -311,7 +311,7 @@ async def list_categories(empresa_id: str):
 async def upload_document(empresa_id: str, file: UploadFile = File(...)):
     """
     Paso 1: Sube el archivo y lo guarda en disco.
-    Retorna file_path y file_id para luego conectar al endpoint SSE de procesamiento.
+    Retorna file_name (solo el nombre del archivo) para luego conectar al endpoint SSE.
     """
     db = SessionLocal()
     try:
@@ -325,7 +325,8 @@ async def upload_document(empresa_id: str, file: UploadFile = File(...)):
         if not file_extension or file_extension not in [".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"]:
             file_extension = ".pdf"
         file_id = str(uuid.uuid4())
-        file_path = UPLOADS_DIR / f"{file_id}{file_extension}"
+        file_name = f"{file_id}{file_extension}"
+        file_path = UPLOADS_DIR / file_name
 
         contents = await file.read()
         if not contents:
@@ -339,6 +340,7 @@ async def upload_document(empresa_id: str, file: UploadFile = File(...)):
         return {
             "status": "uploaded",
             "file_id": file_id,
+            "file_name": file_name,
             "file_path": str(file_path),
             "original_filename": original_name,
             "size_bytes": len(contents),
@@ -355,12 +357,13 @@ async def upload_document(empresa_id: str, file: UploadFile = File(...)):
 @app.get("/api/empresas/{empresa_id}/documentos/process-stream")
 async def process_document_stream(
     empresa_id: str,
-    file_path: str,
+    file_name: str = None,
+    file_path: str = None,
     original_filename: str = "documento"
 ):
     """
     Paso 2: Procesa el archivo subido y emite eventos SSE por cada paso del pipeline.
-    El cliente conecta con EventSource para recibir el streaming en tiempo real.
+    Acepta file_name (solo nombre del archivo) o file_path (ruta completa).
     Pasos: OCR → Visión VLLM → Extracción LLM → Clasificación → Auditoría → Guardado
     """
     db = SessionLocal()
@@ -369,15 +372,19 @@ async def process_document_stream(
         if not empresa:
             raise HTTPException(status_code=404, detail="Empresa no encontrada")
 
-        fp = Path(file_path)
-        if not fp.exists():
-            raise HTTPException(status_code=404, detail=f"Archivo no encontrado: {file_path}")
+        # Resolver ruta de forma segura — siempre dentro de UPLOADS_DIR
+        if file_name:
+            # Sanitizar: solo el nombre del archivo, sin separadores de directorio
+            safe_name = Path(file_name).name  # elimina cualquier path traversal
+            fp = UPLOADS_DIR / safe_name
+        elif file_path:
+            # Fallback: construir desde el nombre del archivo en la ruta
+            fp = UPLOADS_DIR / Path(file_path).name
+        else:
+            raise HTTPException(status_code=400, detail="Se requiere file_name o file_path")
 
-        # Seguridad: verificar que el archivo está dentro del directorio de uploads
-        try:
-            fp.resolve().relative_to(UPLOADS_DIR.resolve())
-        except ValueError:
-            raise HTTPException(status_code=403, detail="Ruta de archivo no permitida")
+        if not fp.exists():
+            raise HTTPException(status_code=404, detail=f"Archivo no encontrado en uploads: {fp.name}")
 
         agent = DocumentPipelineAgent(db, empresa_id, UPLOADS_DIR)
 

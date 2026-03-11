@@ -31,20 +31,12 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 # ── Modelos preferidos (en orden de prioridad) ────────────────────────────────
-TEXT_MODELS = [
-    "qwen2.5:0.5b", "qwen2.5:1.5b", "qwen2.5:3b", "qwen2.5:7b",
-    "qwen2.5", "qwen3:0.6b", "qwen3:1.7b", "qwen3",
-    "llama3.2:1b", "llama3.2:3b", "llama3.1:8b", "llama3.2",
-    "gemma3:1b", "gemma3:4b", "gemma3",
-    "phi3:mini", "phi3", "mistral:7b", "mistral",
-]
-VISION_MODELS = [
-    "qwen2.5vl:3b", "qwen2.5vl:7b", "qwen2.5vl",
-    "moondream", "moondream:latest",
-    "llava:7b", "llava",
-    "llama3.2-vision:11b", "llama3.2-vision",
-    "granite3.2-vision", "minicpm-v",
-]
+# Modelo fijo: qwen3.5:0.8b — único modelo soportado
+QWEN_MODEL = "qwen3.5:0.8b"
+
+# Modelo ÚNICO — no se usa ningún otro
+TEXT_MODELS = ["qwen3.5:0.8b"]
+VISION_MODELS = ["qwen3.5:0.8b"]  # qwen3.5 también puede analizar imágenes con base64
 
 # ── Utilidades Ollama ─────────────────────────────────────────────────────────
 
@@ -821,8 +813,9 @@ class DocumentPipelineAgent:
             categorias = self.db.query(CategoriaContable).filter(
                 CategoriaContable.empresa_id == self.empresa_id
             ).all()
+            # CategoriaContable no tiene campo 'descripcion' — usar tipo_gasto
             cat_list = [{"id": c.id, "nombre": c.nombre,
-                         "descripcion": c.descripcion or ""} for c in categorias]
+                         "descripcion": c.tipo_gasto or c.nombre} for c in categorias]
 
             classification: Dict = {
                 "categoria_sugerida": None, "confianza": 0.0,
@@ -838,7 +831,8 @@ class DocumentPipelineAgent:
                 # 1. LLM classification
                 if text_model:
                     cat_names = "\n".join(
-                        f"- {c['nombre']}: {c['descripcion']}" for c in cat_list
+                        f"- {c['nombre']}" + (f" ({c['descripcion']})" if c['descripcion'] != c['nombre'] else "")
+                        for c in cat_list
                     )
                     llm_resp = _ollama_generate(
                         text_model,
@@ -1015,9 +1009,44 @@ class DocumentPipelineAgent:
 
         except Exception as e:
             logger.error(f"Save error: {e}")
+            # Si es un error de duplicado (UNIQUE constraint), devolver el documento existente
+            err_str = str(e)
+            if "UNIQUE constraint" in err_str and "hash_documento" in err_str:
+                # Buscar el documento existente por hash
+                try:
+                    from models import Documento as DocModel
+                    # Rollback the failed transaction before querying
+                    self.db.rollback()
+                    file_hash = ctx.get("audit", {}).get("hash", "")
+                    existing = None
+                    if file_hash:
+                        existing = self.db.query(DocModel).filter(
+                            DocModel.empresa_id == self.empresa_id,
+                            DocModel.hash_documento == file_hash
+                        ).first()
+                    if existing:
+                        yield self._emit("save", "info", {
+                            "title": "Documento duplicado detectado",
+                            "message": f"Este documento ya fue procesado (ID: {existing.id[:8]}...)",
+                            "doc_id": existing.id
+                        })
+                        yield self._emit("complete", "done", {
+                            "title": "Documento ya existente",
+                            "message": "Este documento ya fue procesado anteriormente",
+                            "doc_id": existing.id,
+                            "fields": {k: str(v) for k, v in ctx["fields"].items()},
+                            "classification": ctx["classification"],
+                            "audit": ctx["audit"],
+                            "ocr_words": len([w for w in ctx["combined_text"].split() if len(w) > 2]),
+                            "models_used": {"text": text_model, "vision": vision_model},
+                            "duplicate": True
+                        })
+                        return
+                except Exception as e2:
+                    logger.error(f"Duplicate lookup error: {e2}")
             yield self._emit("save", "error", {
                 "title": "Error al guardar",
-                "message": str(e)
+                "message": err_str[:200]
             })
 
     def _save_document(self, doc_id: str, file_path: str,
@@ -1039,10 +1068,12 @@ class DocumentPipelineAgent:
             "BOLETA": TipoDocumento.BOLETA,
             "BOLETA_ELECTRONICA": TipoDocumento.BOLETA,
             "BOLETA_DE_VENTA": TipoDocumento.BOLETA,
-            "RECIBO": TipoDocumento.RECIBO,
-            "RECIBO_DE_HONORARIOS": TipoDocumento.RECIBO,
-            "NOTA_CREDITO": TipoDocumento.NOTA_CREDITO,
-            "NOTA_DE_CREDITO": TipoDocumento.NOTA_CREDITO,
+            "RECIBO": TipoDocumento.COMPROBANTE,
+            "RECIBO_DE_HONORARIOS": TipoDocumento.COMPROBANTE,
+            "NOTA_CREDITO": TipoDocumento.COMPROBANTE,
+            "NOTA_DE_CREDITO": TipoDocumento.COMPROBANTE,
+            "COMPROBANTE": TipoDocumento.COMPROBANTE,
+            "CARTOLA": TipoDocumento.CARTOLA,
         }
         tipo_enum = tipo_map.get(tipo_str, TipoDocumento.OTRO)
 
