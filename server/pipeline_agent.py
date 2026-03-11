@@ -135,10 +135,31 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
         if r.status_code == 200:
             resp_json = r.json()
             raw_response = resp_json.get("response", "").strip()
-            # Extraer thinking si está disponible como campo separado
+            # Extraer thinking si está disponible como campo separado (Ollama >= 0.7 con think=true)
             thinking_text = resp_json.get("thinking", "")
             # Limpiar tags <think>...</think> de la respuesta final
             clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.IGNORECASE).strip()
+
+            # — Fallback: si clean_response no contiene JSON válido pero thinking sí,
+            #   extraer el JSON del thinking (qwen3.5 a veces pone el JSON solo en thinking)
+            if enable_thinking and thinking_text:
+                # Verificar si clean_response tiene JSON
+                has_json_in_response = bool(
+                    re.search(r'\{[\s\S]*\}', clean_response) or
+                    re.search(r'```json', clean_response, re.IGNORECASE)
+                )
+                if not has_json_in_response:
+                    # Intentar extraer JSON del thinking
+                    json_in_thinking = re.search(
+                        r'```json\s*([\s\S]*?)\s*```|({\s*"[^"]+"[\s\S]*?})',
+                        thinking_text, re.DOTALL
+                    )
+                    if json_in_thinking:
+                        extracted = json_in_thinking.group(1) or json_in_thinking.group(2)
+                        if extracted:
+                            logger.debug("Usando JSON extraído del thinking como respuesta")
+                            clean_response = extracted.strip()
+
             return clean_response, final_prompt, raw_response, thinking_text
         logger.warning(f"Ollama HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
@@ -751,25 +772,54 @@ KEYWORD_MAP = {
 
 
 def _parse_json_response(text: str) -> Dict:
-    """Extrae JSON de la respuesta del LLM."""
+    """Extrae JSON de la respuesta del LLM.
+
+    Maneja:
+    - Bloques ```json ... ``` con texto antes/después
+    - JSON puro sin markdown
+    - Respuestas con thinking tags <think>...</think>
+    - Respuestas con texto explicativo antes del JSON
+    - JSON con campos numéricos en formato string ("1,200.00" -> 1200.0)
+    """
     if not text:
         return {}
     # Eliminar thinking tags de qwen3.5 (<think>...</think>)
     text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
+    if not text:
+        return {}
+
+    # Patrones en orden de prioridad
     patterns = [
-        r"```json\s*([\s\S]*?)\s*```",
-        r"```\s*([\s\S]*?)\s*```",
-        r"(\{[\s\S]*\})",
+        r"```json\s*([\s\S]*?)\s*```",   # Bloque ```json ... ```
+        r"```\s*(\{[\s\S]*?\})\s*```",   # Bloque ``` { ... } ```
+        r"```\s*([\s\S]*?)\s*```",        # Cualquier bloque de código
+        r"(\{[\s\S]*\})",                 # JSON puro (greedy - toma el más largo)
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.DOTALL)
         if match:
+            candidate = match.group(1).strip()
             try:
-                return json.loads(match.group(1))
+                result = json.loads(candidate)
+                if isinstance(result, dict) and result:
+                    return result
             except Exception:
-                pass
+                # Intentar limpiar el JSON antes de parsear
+                try:
+                    # Eliminar comentarios de estilo // ...
+                    cleaned = re.sub(r'//[^\n]*', '', candidate)
+                    # Eliminar trailing commas antes de } o ]
+                    cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+                    result = json.loads(cleaned)
+                    if isinstance(result, dict) and result:
+                        return result
+                except Exception:
+                    pass
+    # Último intento: parsear el texto completo
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
     except Exception:
         pass
     return {}

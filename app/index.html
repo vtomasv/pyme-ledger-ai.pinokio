@@ -2511,24 +2511,28 @@ async function saveEditField(fieldKey, docId) {
     }
 
     // Actualizar state.documentos para que el listado y el dashboard reflejen el cambio
-    if (state.documentos) {
-      const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
-      if (idx !== -1) {
-        // Aplicar todos los campos del payload
-        state.documentos[idx] = { ...state.documentos[idx], ...payload };
-        // Aplicar también los campos devueltos por el servidor (pueden diferir)
-        if (saved.monto_total !== undefined && saved.monto_total !== null) state.documentos[idx].monto_total = saved.monto_total;
-        if (saved.monto_neto !== undefined && saved.monto_neto !== null) state.documentos[idx].monto_neto = saved.monto_neto;
-        if (saved.iva !== undefined && saved.iva !== null) state.documentos[idx].iva = saved.iva;
-        if (saved.proveedor !== undefined && saved.proveedor !== null) state.documentos[idx].proveedor = saved.proveedor;
-      }
+    // Los campos que devuelve el servidor son la fuente de verdad
+    const updatedFields = {
+      ...payload,
+      monto_total: saved.monto_total ?? payload.monto_total,
+      monto_neto: saved.monto_neto ?? payload.monto_neto,
+      iva: saved.iva ?? payload.iva,
+      proveedor: saved.proveedor ?? payload.proveedor,
+    };
+    if (!state.documentos) state.documentos = [];
+    const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
+    if (idx !== -1) {
+      // Documento ya está en el state — actualizar en sitio
+      state.documentos[idx] = { ...state.documentos[idx], ...updatedFields };
+    } else {
+      // Documento no estaba en state (modal abierto desde dashboard o búsqueda)
+      // Agregar un objeto mínimo para que el grid lo muestre correctamente
+      state.documentos.push({ id: docId, ...updatedFields });
     }
     // Re-renderizar el grid de documentos si está visible (sin destruir el modal)
     if (document.getElementById('docGrid')) filterDocs();
-    // Actualizar dashboard solo si está activo (sin reconstruir el DOM completo)
-    if (state.currentSection === 'dashboard') {
-      refreshDashboardData();
-    }
+    // Actualizar dashboard siempre (el usuario puede estar en cualquier sección)
+    refreshDashboardData();
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
   }
@@ -2595,18 +2599,17 @@ async function onDropToField(event, targetField, docId) {
     }
 
     // 4. Actualizar state.documentos para que el listado y dashboard reflejen el cambio
-    if (state.documentos) {
-      const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
-      if (idx !== -1) {
-        state.documentos[idx] = { ...state.documentos[idx], ...payload };
-      }
+    if (!state.documentos) state.documentos = [];
+    const dropIdx = state.documentos.findIndex(d => String(d.id) === String(docId));
+    if (dropIdx !== -1) {
+      state.documentos[dropIdx] = { ...state.documentos[dropIdx], ...payload };
+    } else {
+      state.documentos.push({ id: docId, ...payload });
     }
     // Re-renderizar el grid de documentos si está visible (sin destruir el modal)
     if (document.getElementById('docGrid')) filterDocs();
-    // Actualizar dashboard solo si está activo
-    if (state.currentSection === 'dashboard') {
-      refreshDashboardData();
-    }
+    // Actualizar dashboard siempre
+    refreshDashboardData();
     showToast(`${targetField} actualizado desde ${campoOrigen || 'agente'}`, 'success');
   } catch(e) {
     showToast('Error al asignar campo: ' + e.message, 'error');
