@@ -2491,6 +2491,23 @@ async function saveEditField(fieldKey, docId) {
       const editBtn = valEl.parentElement?.querySelector('.dfr-edit-btn');
       if (editBtn) editBtn.style.display = '';
     }
+
+    // Actualizar state.documentos para que el listado y el dashboard reflejen el cambio
+    if (state.documentos) {
+      const idx = state.documentos.findIndex(d => d.id === docId);
+      if (idx !== -1) {
+        state.documentos[idx] = { ...state.documentos[idx], ...payload };
+        // Si hay monto_total actualizado, también reflejar en el campo del objeto
+        if (saved.monto_total !== undefined) state.documentos[idx].monto_total = saved.monto_total;
+        if (saved.monto_neto !== undefined) state.documentos[idx].monto_neto = saved.monto_neto;
+        if (saved.iva !== undefined) state.documentos[idx].iva = saved.iva;
+        if (saved.proveedor !== undefined) state.documentos[idx].proveedor = saved.proveedor;
+        // Re-renderizar el grid de documentos si está visible
+        if (document.getElementById('docGrid')) filterDocs();
+        // Re-renderizar el dashboard si está visible
+        if (document.getElementById('kpiGrid')) renderDashboard();
+      }
+    }
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
   }
@@ -2554,6 +2571,16 @@ async function onDropToField(event, targetField, docId) {
       valEl.innerHTML = displayVal;
       valEl.classList.remove('empty');
       valEl.style.color = isAmount ? 'var(--accent2)' : '';
+    }
+
+    // 4. Actualizar state.documentos para que el listado y dashboard reflejen el cambio
+    if (state.documentos) {
+      const idx = state.documentos.findIndex(d => d.id === docId);
+      if (idx !== -1) {
+        state.documentos[idx] = { ...state.documentos[idx], ...payload };
+        if (document.getElementById('docGrid')) filterDocs();
+        if (document.getElementById('kpiGrid')) renderDashboard();
+      }
     }
     showToast(`${targetField} actualizado desde ${campoOrigen || 'agente'}`, 'success');
   } catch(e) {
@@ -3444,7 +3471,7 @@ function fieldLabel(k) {
 }
 
 function escHtml(s) {
-  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return (String(s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // Cerrar modales al hacer clic fuera
