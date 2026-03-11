@@ -1716,6 +1716,24 @@ function obGoApp() {
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════
+// Actualiza solo los datos del dashboard sin reconstruir el DOM completo
+async function refreshDashboardData() {
+  if (!state.empresa) return;
+  // Si el dashboard no está montado, no hacer nada
+  if (!document.getElementById('kpiGrid')) return;
+  try {
+    const [dash, cats, trend] = await Promise.all([
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/dashboard`).then(r => r.json()),
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/categorias`).then(r => r.json()),
+      fetch(`${API}/api/empresas/${state.empresa.id}/analytics/tendencias`).then(r => r.json()),
+    ]);
+    renderKPIs(dash);
+    renderCatChart(cats);
+    renderTrendChart(trend);
+    renderRecentDocs();
+  } catch(e) { console.error('refreshDashboardData error:', e); }
+}
+
 async function renderDashboard() {
   if (!state.empresa) { showOnboarding(); return; }
   document.getElementById('mainContent').innerHTML = `
@@ -2494,19 +2512,22 @@ async function saveEditField(fieldKey, docId) {
 
     // Actualizar state.documentos para que el listado y el dashboard reflejen el cambio
     if (state.documentos) {
-      const idx = state.documentos.findIndex(d => d.id === docId);
+      const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
       if (idx !== -1) {
+        // Aplicar todos los campos del payload
         state.documentos[idx] = { ...state.documentos[idx], ...payload };
-        // Si hay monto_total actualizado, también reflejar en el campo del objeto
-        if (saved.monto_total !== undefined) state.documentos[idx].monto_total = saved.monto_total;
-        if (saved.monto_neto !== undefined) state.documentos[idx].monto_neto = saved.monto_neto;
-        if (saved.iva !== undefined) state.documentos[idx].iva = saved.iva;
-        if (saved.proveedor !== undefined) state.documentos[idx].proveedor = saved.proveedor;
-        // Re-renderizar el grid de documentos si está visible
-        if (document.getElementById('docGrid')) filterDocs();
-        // Re-renderizar el dashboard si está visible
-        if (document.getElementById('kpiGrid')) renderDashboard();
+        // Aplicar también los campos devueltos por el servidor (pueden diferir)
+        if (saved.monto_total !== undefined && saved.monto_total !== null) state.documentos[idx].monto_total = saved.monto_total;
+        if (saved.monto_neto !== undefined && saved.monto_neto !== null) state.documentos[idx].monto_neto = saved.monto_neto;
+        if (saved.iva !== undefined && saved.iva !== null) state.documentos[idx].iva = saved.iva;
+        if (saved.proveedor !== undefined && saved.proveedor !== null) state.documentos[idx].proveedor = saved.proveedor;
       }
+    }
+    // Re-renderizar el grid de documentos si está visible (sin destruir el modal)
+    if (document.getElementById('docGrid')) filterDocs();
+    // Actualizar dashboard solo si está activo (sin reconstruir el DOM completo)
+    if (state.currentSection === 'dashboard') {
+      refreshDashboardData();
     }
   } catch(e) {
     showToast('Error: ' + e.message, 'error');
@@ -2575,12 +2596,16 @@ async function onDropToField(event, targetField, docId) {
 
     // 4. Actualizar state.documentos para que el listado y dashboard reflejen el cambio
     if (state.documentos) {
-      const idx = state.documentos.findIndex(d => d.id === docId);
+      const idx = state.documentos.findIndex(d => String(d.id) === String(docId));
       if (idx !== -1) {
         state.documentos[idx] = { ...state.documentos[idx], ...payload };
-        if (document.getElementById('docGrid')) filterDocs();
-        if (document.getElementById('kpiGrid')) renderDashboard();
       }
+    }
+    // Re-renderizar el grid de documentos si está visible (sin destruir el modal)
+    if (document.getElementById('docGrid')) filterDocs();
+    // Actualizar dashboard solo si está activo
+    if (state.currentSection === 'dashboard') {
+      refreshDashboardData();
     }
     showToast(`${targetField} actualizado desde ${campoOrigen || 'agente'}`, 'success');
   } catch(e) {
@@ -2722,6 +2747,110 @@ async function openDocModal(docId) {
         html += `<details style="margin-top:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">Heredado de agente anterior (${Object.keys(heredados).length} campos)</summary>`;
         html += `<pre style="font-size:10px;margin:4px 0 0;color:var(--text3)">${escHtml(JSON.stringify(heredados, null, 2).substring(0, 600))}</pre></details>`;
       }
+
+      // ── Panel de depuración: prompt + respuesta raw (sólo si hay datos) ──
+      const hasDebug = res.debug_prompt || res.debug_raw_response || res.debug_thinking
+        || res.debug_clasificador_prompt || res.debug_clasificador_response;
+      if (hasDebug) {
+        html += `
+          <details class="debug-panel" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+            <summary style="font-size:11px;color:var(--text3);cursor:pointer;user-select:none;
+              display:flex;align-items:center;gap:6px;font-weight:600">
+              <span style="font-size:13px">🔍</span> Ver depuración del agente
+              <span style="font-size:9px;font-weight:400;color:var(--text3)">(prompt de entrada + respuesta raw)</span>
+            </summary>
+            <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">`;
+
+        // Mostrar debug del clasificador si está embebido en el auditor
+        if (res.debug_clasificador_prompt) {
+          html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--accent2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  🏷 Clasificador — Prompt enviado
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;
+                  color:var(--text2);margin:0">${escHtml(res.debug_clasificador_prompt)}</pre>
+              </div>`;
+          if (res.debug_clasificador_system) {
+            html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  Sistema (clasificador)
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto;
+                  color:var(--text3);margin:0">${escHtml(res.debug_clasificador_system)}</pre>
+              </div>`;
+          }
+          if (res.debug_clasificador_response) {
+            html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  Respuesta raw (clasificador)
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;
+                  color:var(--green);margin:0">${escHtml(res.debug_clasificador_response)}</pre>
+              </div>`;
+          }
+        }
+
+        // System prompt del agente actual
+        if (res.debug_system) {
+          html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  System Prompt
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto;
+                  color:var(--text3);margin:0">${escHtml(res.debug_system)}</pre>
+              </div>`;
+        }
+
+        // Prompt de entrada
+        if (res.debug_prompt) {
+          html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--accent2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  Prompt de entrada
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:250px;overflow-y:auto;
+                  color:var(--text2);margin:0">${escHtml(res.debug_prompt)}</pre>
+              </div>`;
+        }
+
+        // Thinking (si existe)
+        if (res.debug_thinking) {
+          html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--yellow);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  🧠 Thinking (razonamiento interno)
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;
+                  color:var(--yellow);margin:0">${escHtml(res.debug_thinking)}</pre>
+              </div>`;
+        }
+
+        // Respuesta raw
+        if (res.debug_raw_response) {
+          html += `
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px">
+                  Respuesta raw del modelo
+                </div>
+                <pre style="font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+                  padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:250px;overflow-y:auto;
+                  color:var(--green);margin:0">${escHtml(res.debug_raw_response)}</pre>
+              </div>`;
+        }
+
+        html += `</div></details>`;
+      }
+
       return html || '<em style="color:var(--text3);font-size:11px">Agente ejecutado sin datos adicionales.</em>';
     }
 

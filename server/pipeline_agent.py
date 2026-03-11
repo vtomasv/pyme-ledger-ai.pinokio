@@ -98,16 +98,23 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
                      system: Optional[str] = None,
                      timeout: int = 120,
                      temperature: float = 0.1,
-                     max_tokens: int = 1000) -> str:
+                     max_tokens: int = 1000,
+                     enable_thinking: bool = False) -> tuple:
     """
-    Llama a Ollama y retorna la respuesta completa.
+    Llama a Ollama y retorna (respuesta_limpia, prompt_enviado, respuesta_raw).
     Soporta imágenes en base64 para modelos multimodales.
+    Para qwen3.5: activa thinking nativo con think=True en options.
     """
     try:
         import requests
+        # Construir el prompt final (sin prefijo /think - usamos la opción nativa)
+        final_prompt = prompt
+        if enable_thinking and prompt.startswith("/think\n"):
+            final_prompt = prompt[len("/think\n"):]
+
         payload: Dict = {
             "model": model,
-            "prompt": prompt,
+            "prompt": final_prompt,
             "stream": False,
             "options": {
                 "temperature": temperature,
@@ -115,17 +122,28 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
                 "top_p": 0.9
             }
         }
+        # Activar thinking nativo para qwen3.5 (Ollama >= 0.7)
+        if enable_thinking and "qwen" in model.lower():
+            payload["think"] = True
+
         if system:
             payload["system"] = system
         if image_b64:
             payload["images"] = [image_b64]
+
         r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=timeout)
         if r.status_code == 200:
-            return r.json().get("response", "").strip()
+            resp_json = r.json()
+            raw_response = resp_json.get("response", "").strip()
+            # Extraer thinking si está disponible como campo separado
+            thinking_text = resp_json.get("thinking", "")
+            # Limpiar tags <think>...</think> de la respuesta final
+            clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.IGNORECASE).strip()
+            return clean_response, final_prompt, raw_response, thinking_text
         logger.warning(f"Ollama HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
         logger.debug(f"Ollama error: {e}")
-    return ""
+    return "", prompt, "", ""
 
 
 def _image_to_base64(img_path: str, max_size: int = 1600) -> Optional[str]:
@@ -927,7 +945,10 @@ class DocumentPipelineAgent:
                 "metodo": ocr_result.get("method", "tesseract"),
                 "palabras": ocr_result.get("words", 0),
                 "texto_preview": ocr_result["text"][:500] if ocr_result["text"] else "",
-                "campos_detectados": {}  # OCR no extrae campos estructurados
+                "campos_detectados": {},  # OCR no extrae campos estructurados
+                # Debug: el texto completo extraído es la "salida" del OCR
+                "debug_prompt": f"Archivo: {original_filename}\nMétodo: {ocr_result.get('method', 'tesseract')}\nPSM: multi-pass (3, 6, 11)",
+                "debug_raw_response": ocr_result["text"][:3000] if ocr_result["text"] else "(sin texto extraído)"
             }
 
             yield self._emit("ocr", "done", {
@@ -960,18 +981,20 @@ class DocumentPipelineAgent:
                 # Para qwen3.5: habilitar thinking con /think al inicio del prompt
                 vision_prompt = cfg_vision["prompt"] if cfg_vision["prompt"] else build_vision_prompt(ctx["ocr_text"])
                 vision_system = cfg_vision["system_prompt"] if cfg_vision["system_prompt"] else VISION_SYSTEM_PROMPT
-                # Agregar /think para activar thinking en qwen3.5
-                if "qwen" in vision_model_to_use.lower() and not vision_prompt.startswith("/think"):
-                    vision_prompt = "/think\n" + vision_prompt
+                # Activar thinking nativo para qwen3.5 (quitar prefijo /think manual)
+                is_qwen_vision = "qwen" in vision_model_to_use.lower()
+                if is_qwen_vision and vision_prompt.startswith("/think\n"):
+                    vision_prompt = vision_prompt[len("/think\n"):]
 
-                vision_resp = _ollama_generate(
+                vision_resp, vision_prompt_sent, vision_raw, vision_thinking = _ollama_generate(
                     model=vision_model_to_use,
                     prompt=vision_prompt,
                     image_b64=img_b64,                    # ← IMAGEN incluida
                     system=vision_system,
                     timeout=cfg_vision["timeout"],
                     temperature=cfg_vision["temperature"],
-                    max_tokens=cfg_vision["max_tokens"]
+                    max_tokens=cfg_vision["max_tokens"],
+                    enable_thinking=is_qwen_vision
                 )
 
                 vision_data = _parse_json_response(vision_resp)
@@ -995,12 +1018,17 @@ class DocumentPipelineAgent:
                     if k not in ctx["fields"] or not ctx["fields"][k]:
                         ctx["fields"][k] = v
 
-                # Guardar resultado del agente Visual con herencia del OCR
+                # Guardar resultado del agente Visual con herencia del OCR + debug info
                 ctx["agent_results"]["vision"] = {
                     "modelo": vision_model_to_use,
                     "campos_detectados": {k: str(v) for k, v in ctx["vision_fields"].items()},
                     "texto_adicional": ctx["vision_text"][:300] if ctx["vision_text"] else "",
-                    "heredado_de_ocr": ctx["agent_results"]["ocr"].get("campos_detectados", {})
+                    "heredado_de_ocr": ctx["agent_results"]["ocr"].get("campos_detectados", {}),
+                    # Datos de depuración: prompt enviado y respuesta raw
+                    "debug_prompt": vision_prompt_sent[:3000],
+                    "debug_system": vision_system[:1000] if vision_system else "",
+                    "debug_raw_response": vision_raw[:3000],
+                    "debug_thinking": vision_thinking[:2000] if vision_thinking else ""
                 }
 
                 yield self._emit("vision", "done", {
@@ -1049,18 +1077,20 @@ class DocumentPipelineAgent:
                     extractor_prompt = build_extractor_prompt(ctx["ocr_text"], ctx["vision_fields"])
 
                 extractor_system = cfg_extractor["system_prompt"] if cfg_extractor["system_prompt"] else EXTRACTOR_SYSTEM_PROMPT
-                # Agregar /think para activar thinking en qwen3.5
-                if "qwen" in extractor_model_to_use.lower() and not extractor_prompt.startswith("/think"):
-                    extractor_prompt = "/think\n" + extractor_prompt
+                # Activar thinking nativo para qwen3.5
+                is_qwen_extractor = "qwen" in extractor_model_to_use.lower()
+                if is_qwen_extractor and extractor_prompt.startswith("/think\n"):
+                    extractor_prompt = extractor_prompt[len("/think\n"):]
 
-                llm_resp = _ollama_generate(
+                llm_resp, extractor_prompt_sent, extractor_raw, extractor_thinking = _ollama_generate(
                     model=extractor_model_to_use,
                     prompt=extractor_prompt,
                     image_b64=img_b64,                    # ← IMAGEN incluida
                     system=extractor_system,
                     timeout=cfg_extractor["timeout"],
                     temperature=cfg_extractor["temperature"],
-                    max_tokens=cfg_extractor["max_tokens"]
+                    max_tokens=cfg_extractor["max_tokens"],
+                    enable_thinking=is_qwen_extractor
                 )
                 llm_fields = _parse_json_response(llm_resp)
 
@@ -1081,13 +1111,18 @@ class DocumentPipelineAgent:
                 if v is not None and v != "" and str(v) not in ("null", "None")
             }
 
-            # Guardar resultado del agente Extractor con herencia de Vision y OCR
+            # Guardar resultado del agente Extractor con herencia de Vision y OCR + debug
             ctx["agent_results"]["extractor"] = {
                 "modelo": extractor_model_to_use or "regex",
                 "campos_detectados": {k: str(v) for k, v in ctx["fields"].items()},
                 "campos_regex": {k: str(v) for k, v in regex_fields.items()},
                 "heredado_de_vision": ctx["agent_results"].get("vision", {}).get("campos_detectados", {}),
-                "heredado_de_ocr": ctx["agent_results"].get("ocr", {}).get("campos_detectados", {})
+                "heredado_de_ocr": ctx["agent_results"].get("ocr", {}).get("campos_detectados", {}),
+                # Datos de depuración
+                "debug_prompt": locals().get("extractor_prompt_sent", "")[:3000],
+                "debug_system": locals().get("extractor_system", "")[:1000] if locals().get("extractor_system") else "",
+                "debug_raw_response": locals().get("extractor_raw", "")[:3000],
+                "debug_thinking": locals().get("extractor_thinking", "")[:2000] if locals().get("extractor_thinking") else ""
             }
 
             yield self._emit("extraction", "done", {
@@ -1153,7 +1188,7 @@ class DocumentPipelineAgent:
                         cls_prompt = build_classifier_prompt(ctx["fields"], ctx["combined_text"], cat_names)
 
                     classifier_system = cfg_classifier["system_prompt"] if cfg_classifier["system_prompt"] else CLASSIFIER_SYSTEM_PROMPT
-                    llm_resp = _ollama_generate(
+                    llm_resp, cls_prompt_sent, cls_raw, cls_thinking = _ollama_generate(
                         model=classifier_model_to_use,
                         prompt=cls_prompt,
                         system=classifier_system,
@@ -1199,14 +1234,26 @@ class DocumentPipelineAgent:
                                 break
 
             ctx["classification"] = classification
+            # Guardar debug del clasificador
+            ctx["_cls_debug"] = {
+                "prompt": locals().get("cls_prompt_sent", "")[:3000],
+                "system": locals().get("classifier_system", "")[:1000] if locals().get("classifier_system") else "",
+                "raw_response": locals().get("cls_raw", "")[:3000],
+                "thinking": locals().get("cls_thinking", "")[:2000] if locals().get("cls_thinking") else ""
+            }
 
-            # Guardar resultado del agente Clasificador con herencia del Extractor
+            # Guardar resultado del agente Clasificador con herencia del Extractor + debug
             ctx["agent_results"]["clasificador"] = {
                 "modelo": cfg_classifier.get("modelo", "llama3.2:3b"),
                 "categoria_sugerida": classification.get("categoria_sugerida"),
                 "confianza": classification.get("confianza", 0.0),
                 "razon": classification.get("razon", ""),
-                "heredado_de_extractor": ctx["agent_results"].get("extractor", {}).get("campos_detectados", {})
+                "heredado_de_extractor": ctx["agent_results"].get("extractor", {}).get("campos_detectados", {}),
+                # Datos de depuración
+                "debug_prompt": ctx.get("_cls_debug", {}).get("prompt", ""),
+                "debug_system": ctx.get("_cls_debug", {}).get("system", ""),
+                "debug_raw_response": ctx.get("_cls_debug", {}).get("raw_response", ""),
+                "debug_thinking": ctx.get("_cls_debug", {}).get("thinking", "")
             }
 
             yield self._emit("classification", "done", {
@@ -1305,7 +1352,7 @@ class DocumentPipelineAgent:
                         )
 
                     auditor_system = cfg_auditor["system_prompt"] if cfg_auditor["system_prompt"] else AUDITOR_SYSTEM_PROMPT
-                    audit_resp = _ollama_generate(
+                    audit_resp, audit_prompt_sent, audit_raw, audit_thinking = _ollama_generate(
                         model=auditor_model_to_use,
                         prompt=audit_prompt,
                         image_b64=img_b64,              # ← IMAGEN incluida (llama3.2 vision)
@@ -1346,7 +1393,15 @@ class DocumentPipelineAgent:
                 # El auditor tiene la verdad consolidada de todos los agentes
                 "campos_finales": {k: str(v) for k, v in ctx["fields"].items()},
                 "categoria_final": ctx["classification"].get("categoria_sugerida"),
-                "confianza_final": ctx["classification"].get("confianza", 0.0)
+                "confianza_final": ctx["classification"].get("confianza", 0.0),
+                # Datos de depuración del clasificador y auditor
+                "debug_clasificador_prompt": ctx.get("_cls_debug", {}).get("prompt", ""),
+                "debug_clasificador_system": ctx.get("_cls_debug", {}).get("system", ""),
+                "debug_clasificador_response": ctx.get("_cls_debug", {}).get("raw_response", ""),
+                "debug_prompt": locals().get("audit_prompt_sent", "")[:3000],
+                "debug_system": locals().get("auditor_system", "")[:1000] if locals().get("auditor_system") else "",
+                "debug_raw_response": locals().get("audit_raw", "")[:3000],
+                "debug_thinking": locals().get("audit_thinking", "")[:2000] if locals().get("audit_thinking") else ""
             }
 
             yield self._emit("audit", "done", {
