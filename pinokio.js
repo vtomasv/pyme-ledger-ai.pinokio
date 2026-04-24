@@ -2,8 +2,8 @@ const path = require("path")
 const fs = require("fs")
 
 module.exports = {
-  title: "Pyme Ledger AI",
-  description: "Gestión de documentos contables con IA local para PyMEs — 100% offline",
+  title: "CCS — Pyme Ledger AI",
+  description: "Clasificación inteligente de gastos con IA local para PyMEs — 100% offline | CCS",
   icon: "icon.png",
   version: "1.3.0",
 
