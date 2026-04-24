@@ -1,13 +1,27 @@
+const path = require("path")
+const fs = require("fs")
+
 module.exports = {
   title: "Pyme Ledger AI",
   description: "Gestión de documentos contables con IA local para PyMEs — 100% offline",
   icon: "icon.png",
-  version: "1.0.0",
+  version: "1.3.0",
 
   menu: async (kernel, info) => {
-    // Verificar instalación: comprobar que el venv existe
-    const installed = await kernel.exists(__dirname, "venv")
-    const running = await kernel.script.running(__dirname, "start.json")
+    // Verificar instalación: comprobar que el venv existe (cross-platform)
+    const isWin = process.platform === "win32"
+    const venvMarker = isWin
+      ? path.resolve(__dirname, "venv", "Scripts", "python.exe")
+      : path.resolve(__dirname, "venv", "bin", "python")
+
+    let installed = false
+    try {
+      installed = fs.existsSync(venvMarker)
+    } catch (e) {
+      installed = false
+    }
+
+    const running = info && info.running
 
     if (!installed) {
       return [{

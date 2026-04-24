@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 from difflib import SequenceMatcher
 import requests
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 TIMEOUT_CLASSIFICATION = int(os.getenv("OLLAMA_TIMEOUT_CLASSIFICATION", "60"))
 
 # ── Diccionario semántico de keywords por categoría genérica ─────────────────

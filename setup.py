@@ -125,12 +125,30 @@ def install_tesseract():
         return False
 
     elif IS_WINDOWS:
+        # Buscar en rutas comunes primero (puede estar instalado pero no en PATH)
+        common_tess_paths = [
+            Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Tesseract-OCR",
+            Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)")) / "Tesseract-OCR",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Tesseract-OCR",
+        ]
+        for tess_dir in common_tess_paths:
+            tess_exe = tess_dir / "tesseract.exe"
+            if tess_exe.exists():
+                os.environ["PATH"] = str(tess_dir) + os.pathsep + os.environ.get("PATH", "")
+                log(f"Tesseract encontrado en {tess_dir}")
+                return True
+
         if shutil.which("winget"):
             ok = run_silent(["winget", "install", "-e", "--id",
                              "UB-Mannheim.TesseractOCR",
                              "--accept-source-agreements",
                              "--accept-package-agreements"])
             if ok:
+                # Agregar al PATH de la sesión
+                for tess_dir in common_tess_paths:
+                    if (tess_dir / "tesseract.exe").exists():
+                        os.environ["PATH"] = str(tess_dir) + os.pathsep + os.environ.get("PATH", "")
+                        break
                 log("Tesseract instalado via winget.")
                 return True
         if shutil.which("choco"):
@@ -138,7 +156,8 @@ def install_tesseract():
             if ok:
                 log("Tesseract instalado via Chocolatey.")
                 return True
-        log("AVISO: Descarga desde https://github.com/UB-Mannheim/tesseract/wiki")
+        log("AVISO: Tesseract no disponible. OCR usará EasyOCR como alternativa.")
+        log("Para mejor precisión: https://github.com/UB-Mannheim/tesseract/wiki")
         return False
 
     return False
@@ -177,7 +196,52 @@ def install_poppler():
         return False
 
     elif IS_WINDOWS:
-        log("AVISO: Descarga Poppler desde https://github.com/oschwartz10612/poppler-windows/releases")
+        # Intentar instalar via winget/choco primero
+        if shutil.which("winget"):
+            ok = run_silent(["winget", "install", "-e", "--id",
+                             "freedesktop.Poppler",
+                             "--accept-source-agreements",
+                             "--accept-package-agreements"])
+            if ok and (shutil.which("pdftoppm") or shutil.which("pdfinfo")):
+                log("Poppler instalado via winget.")
+                return True
+        if shutil.which("choco"):
+            ok = run_silent(["choco", "install", "poppler", "-y"])
+            if ok and (shutil.which("pdftoppm") or shutil.which("pdfinfo")):
+                log("Poppler instalado via Chocolatey.")
+                return True
+
+        # Fallback: descargar binarios portables
+        poppler_dir = BASE_DIR / "tools" / "poppler"
+        poppler_bin = poppler_dir / "Library" / "bin"
+        if poppler_bin.exists() and (poppler_bin / "pdftoppm.exe").exists():
+            os.environ["PATH"] = str(poppler_bin) + os.pathsep + os.environ.get("PATH", "")
+            log(f"Poppler portable ya disponible en {poppler_bin}")
+            return True
+
+        try:
+            import zipfile
+            import urllib.request
+            poppler_url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v24.08.0-0/Release-24.08.0-0.zip"
+            zip_path = BASE_DIR / "tools" / "poppler.zip"
+            zip_path.parent.mkdir(parents=True, exist_ok=True)
+            log("Descargando Poppler portable para Windows...")
+            urllib.request.urlretrieve(poppler_url, str(zip_path))
+            log("Extrayendo Poppler...")
+            with zipfile.ZipFile(str(zip_path), 'r') as z:
+                z.extractall(str(poppler_dir))
+            zip_path.unlink(missing_ok=True)
+            # Buscar el directorio bin dentro de la extracción
+            for bin_candidate in poppler_dir.rglob("pdftoppm.exe"):
+                real_bin = bin_candidate.parent
+                os.environ["PATH"] = str(real_bin) + os.pathsep + os.environ.get("PATH", "")
+                log(f"Poppler portable instalado en {real_bin}")
+                return True
+        except Exception as e:
+            log(f"Error descargando Poppler: {e}")
+
+        log("AVISO: Poppler no disponible. Preview de PDFs no funcionará.")
+        log("Descarga desde https://github.com/oschwartz10612/poppler-windows/releases")
         return False
 
     return False
@@ -284,7 +348,7 @@ if __name__ == "__main__":
     errors = []
 
     try:
-        log("\n--- Paso 1/7: Creando entorno virtual Python ---")
+        log("\n--- Paso 1/6: Creando entorno virtual Python ---")
         create_venv()
         results['venv'] = 'ok'
     except Exception as e:
@@ -293,7 +357,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        log("\n--- Paso 2/7: Instalando dependencias Python ---")
+        log("\n--- Paso 2/6: Instalando dependencias Python ---")
         install_python_deps()
         results['python_deps'] = 'ok'
     except Exception as e:
@@ -302,7 +366,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        log("\n--- Paso 3/7: Instalando Tesseract OCR ---")
+        log("\n--- Paso 3/6: Instalando Tesseract OCR ---")
         ok = install_tesseract()
         results['tesseract'] = 'ok' if ok else 'warning_not_installed'
     except Exception as e:
@@ -310,7 +374,7 @@ if __name__ == "__main__":
         results['tesseract'] = f'error: {e}'
 
     try:
-        log("\n--- Paso 4/7: Instalando Poppler (PDF→imagen) ---")
+        log("\n--- Paso 4/6: Instalando Poppler (PDF→imagen) ---")
         ok = install_poppler()
         results['poppler'] = 'ok' if ok else 'warning_not_installed'
     except Exception as e:
@@ -318,7 +382,7 @@ if __name__ == "__main__":
         results['poppler'] = f'error: {e}'
 
     try:
-        log("\n--- Paso 5/7: Creando directorios de datos ---")
+        log("\n--- Paso 5/6: Creando directorios de datos ---")
         create_data_dirs()
         results['data_dirs'] = 'ok'
     except Exception as e:
@@ -326,20 +390,15 @@ if __name__ == "__main__":
         errors.append(f"data_dirs: {e}")
 
     try:
-        log("\n--- Paso 6/7: Copiando configuración por defecto ---")
+        log("\n--- Paso 6/6: Copiando configuración por defecto ---")
         copy_defaults()
         results['defaults'] = 'ok'
     except Exception as e:
         log(f"AVISO en defaults: {e}")
         results['defaults'] = f'warning: {e}'
 
-    try:
-        log(f"\n--- Paso 7/7: Descargando modelo IA {AI_MODEL} ---")
-        ok = pull_ai_model()
-        results['ai_model'] = 'ok' if ok else 'warning_not_available'
-    except Exception as e:
-        log(f"AVISO en modelo IA: {e}")
-        results['ai_model'] = f'warning: {e}'
+    # Nota: los modelos de IA se descargan en un paso separado (scripts/pull_models.py)
+    # para dar mejor feedback visual al usuario en Pinokio.
 
     # Resumen final
     write_install_summary(results)

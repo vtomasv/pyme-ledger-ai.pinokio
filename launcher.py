@@ -40,7 +40,27 @@ def main():
     if "PLUGIN_DIR" not in env or not env["PLUGIN_DIR"]:
         env["PLUGIN_DIR"] = str(BASE_DIR)
     if "OLLAMA_URL" not in env:
-        env["OLLAMA_URL"] = "http://localhost:11434"
+        env["OLLAMA_URL"] = "http://127.0.0.1:11434"
+
+    # En Windows, agregar herramientas portables al PATH si existen
+    if IS_WINDOWS:
+        tools_dir = BASE_DIR / "tools"
+        # Poppler portable
+        for poppler_bin in tools_dir.rglob("pdftoppm.exe"):
+            pdir = str(poppler_bin.parent)
+            if pdir not in env.get("PATH", ""):
+                env["PATH"] = pdir + os.pathsep + env.get("PATH", "")
+            break
+        # Tesseract en rutas comunes
+        import shutil
+        if not shutil.which("tesseract"):
+            for tess_dir in [
+                Path(os.environ.get("PROGRAMFILES", "")) / "Tesseract-OCR",
+                Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Tesseract-OCR",
+            ]:
+                if (tess_dir / "tesseract.exe").exists():
+                    env["PATH"] = str(tess_dir) + os.pathsep + env.get("PATH", "")
+                    break
 
     print(f"[launcher] Plataforma: {sys.platform}", flush=True)
     print(f"[launcher] Python venv: {VENV_PYTHON}", flush=True)

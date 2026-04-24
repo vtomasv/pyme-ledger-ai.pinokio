@@ -12,3 +12,6 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Herramientas portables (descargadas por setup.py)
+tools/

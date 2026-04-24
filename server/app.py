@@ -1092,7 +1092,7 @@ Pregunta del usuario: {msg.message}"""
 
         try:
             r = _req.post(
-                f"{os.environ.get('OLLAMA_URL', 'http://localhost:11434')}/api/generate",
+                f"{os.environ.get('OLLAMA_URL', 'http://127.0.0.1:11434')}/api/generate",
                 json={
                     "model": llm_model,
                     "prompt": user_prompt,
@@ -1295,7 +1295,7 @@ async def update_agent(agent_id: str, config: dict):
             if new_model and new_model not in ("tesseract", "reglas", "moondream"):
                 try:
                     import requests as _req
-                    r = _req.get("http://localhost:11434/api/tags", timeout=3)
+                    r = _req.get(f"{os.environ.get('OLLAMA_URL', 'http://127.0.0.1:11434')}/api/tags", timeout=3)
                     models = [m["name"] for m in r.json().get("models", [])]
                     if new_model not in models:
                         return {"ok": True, "warning": f"Modelo '{new_model}' no encontrado en Ollama. Descarga con: ollama pull {new_model}"}

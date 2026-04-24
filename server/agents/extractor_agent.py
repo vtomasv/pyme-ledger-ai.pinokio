@@ -11,7 +11,7 @@ from typing import Dict, Optional
 from datetime import datetime
 import requests
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 TIMEOUT_EXTRACTION = int(os.getenv("OLLAMA_TIMEOUT_EXTRACTION", "60"))
 
 

@@ -49,7 +49,7 @@ from typing import Dict, Generator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 
 ## ── Modelos soportados por agente ──────────────────────────────────────
 QWEN_MODEL = "qwen3.5:0.8b"      # Agentes visuales (OCR+Visual+Extractor)

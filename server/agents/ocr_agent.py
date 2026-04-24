@@ -24,7 +24,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 # ── Constantes ────────────────────────────────────────────────────────────────
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 
 # Modelos de visión preferidos en orden (del más ligero al más pesado)
 VISION_MODELS_PREFERENCE = [

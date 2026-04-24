@@ -3,63 +3,32 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:20px;background:#0f172a;border-radius:12px;margin:16px'><h2 style='color:#6366f1;margin-bottom:8px'>Pyme Ledger AI - Instalacion automatica</h2><p style='color:#94a3b8'>Configurando todos los componentes. Este proceso puede tardar 5-10 minutos.</p></div>"
+        "html": "<div style='padding:20px;background:#0f172a;border-radius:12px;margin:16px'><h2 style='color:#6366f1;margin-bottom:8px'>Pyme Ledger AI - Instalacion automatica</h2><p style='color:#94a3b8'>Configurando todos los componentes. Este proceso puede tardar 5-15 minutos la primera vez.</p><p style='color:#64748b;font-size:12px'>Plataforma: {{platform}} | RAM: {{ram}}GB | GPU: {{gpu || 'N/A'}}</p></div>"
       }
     },
+
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>1/6 - Configurando motor de IA local (Ollama)...</h3><p style='color:#94a3b8'>Ollama permite ejecutar modelos de IA 100% offline.</p></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>1/4 - Verificando Ollama...</h3><p style='color:#94a3b8'>Motor de IA local para ejecutar modelos 100% offline.</p></div>"
       }
     },
+
     {
       "method": "shell.run",
       "params": {
-        "message": "{{platform === 'win32' ? 'winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements 2>NUL || echo OLLAMA_ALREADY_INSTALLED' : 'ollama --version 2>/dev/null || curl -fsSL https://ollama.com/install.sh | sh'}}"
+        "message": "python scripts/install_ollama.py",
+        "path": "{{cwd}}"
       }
     },
+
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>2/6 - Iniciando motor Ollama...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>2/4 - Instalando entorno Python, OCR y dependencias...</h3><p style='color:#94a3b8'>Creando entorno virtual, instalando Tesseract, Poppler y librerias.</p></div>"
       }
     },
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "{{platform === 'win32' ? 'start /B ollama serve > NUL 2>&1 & ping -n 5 127.0.0.1 > NUL' : 'ollama serve > /dev/null 2>&1 & sleep 4'}}"
-      }
-    },
-    {
-      "method": "log",
-      "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>3/6 - Descargando Agente de Lenguaje (~500MB)...</h3><p style='color:#94a3b8'>Modelo de lenguaje compacto para clasificacion y extraccion de datos de documentos. Solo se descarga una vez.</p></div>"
-      }
-    },
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "ollama pull qwen3.5:0.8b"
-      }
-    },
-    {
-      "method": "log",
-      "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>4/6 - Descargando Agente Visual (~1.8GB)...</h3><p style='color:#94a3b8'>Agente de vision para leer documentos escaneados, manuscritos y fotografias de boletas.</p></div>"
-      }
-    },
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "ollama pull moondream"
-      }
-    },
-    {
-      "method": "log",
-      "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>5/6 - Instalando OCR y dependencias Python...</h3><p style='color:#94a3b8'>Tesseract OCR, EasyOCR, Poppler y librerias de procesamiento de documentos.</p></div>"
-      }
-    },
+
     {
       "method": "shell.run",
       "params": {
@@ -67,25 +36,44 @@
         "path": "{{cwd}}"
       }
     },
+
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>6/6 - Guardando configuracion inicial...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>3/4 - Descargando modelos de IA...</h3><p style='color:#94a3b8'>Agente de lenguaje (~500MB) y agente visual (~1.8GB). Solo se descarga una vez.</p></div>"
       }
     },
+
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "python scripts/pull_models.py",
+        "path": "{{cwd}}"
+      }
+    },
+
+    {
+      "method": "log",
+      "params": {
+        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>4/4 - Guardando configuracion...</h3></div>"
+      }
+    },
+
     {
       "method": "fs.write",
       "params": {
         "path": "data/config.json",
-        "text": "{{JSON.stringify({version:'1.2.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,textModel:'qwen3.5:0.8b',visionModel:'moondream',ollamaUrl:'http://localhost:11434',ollamaTimeout:300},null,2)}}"
+        "text": "{{JSON.stringify({version:'1.3.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,textModel:'qwen3.5:0.8b',visionModel:'moondream',ollamaUrl:'http://127.0.0.1:11434',ollamaTimeout:300},null,2)}}"
       }
     },
+
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:20px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e;margin-bottom:8px'>Instalacion completada</h3><p style='color:#d1fae5'>Pyme Ledger AI esta listo para usar:</p><ul style='color:#d1fae5;margin-top:8px'><li>Motor de IA local configurado</li><li>Agente de lenguaje descargado</li><li>Agente visual descargado</li><li>OCR multi-estrategia instalado</li><li>Base de datos configurada</li></ul><p style='margin-top:12px;color:#94a3b8'>Haz click en Iniciar para comenzar.</p></div>"
+        "html": "<div style='padding:20px;background:#0f2d1a;border-radius:8px;margin:16px'><h3 style='color:#22c55e;margin-bottom:8px'>Instalacion completada</h3><p style='color:#d1fae5'>Pyme Ledger AI esta listo para usar:</p><ul style='color:#d1fae5;margin-top:8px'><li>Motor de IA local configurado</li><li>Agentes de lenguaje y vision descargados</li><li>OCR multi-estrategia instalado</li><li>Base de datos configurada</li></ul><p style='margin-top:12px;color:#94a3b8'>Haz click en <strong>Iniciar</strong> para comenzar.</p></div>"
       }
     },
+
     {
       "method": "notify",
       "params": {
