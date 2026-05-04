@@ -786,8 +786,14 @@ Tu rol es determinar la categoría contable más apropiada para este gasto.
 Tienes acceso a TODA la información extraída por los agentes anteriores.
 Responde SOLO con JSON válido, sin texto adicional ni markdown."""
 
-def build_classifier_prompt(fields: Dict, combined_text: str, categorias: str) -> str:
-    """Construye el prompt del Agente Clasificador con contexto completo."""
+def build_classifier_prompt(fields: Dict, combined_text: str, categorias: str, learnings_text: str = "") -> str:
+    """Construye el prompt del Agente Clasificador con contexto completo y memoria de aprendizaje."""
+    learnings_section = ""
+    if learnings_text:
+        learnings_section = f"""\n{learnings_text}\n
+IMPORTANTE: Si el proveedor o tipo de documento coincide con alguna clasificación aprendida arriba,
+USA esa categoría con confianza alta (0.95). El usuario ya corrigió esa clasificación antes.
+"""
     return f"""Clasifica este gasto empresarial en la categoría contable más apropiada.
 
 === INFORMACIÓN EXTRAÍDA (todos los agentes anteriores) ===
@@ -802,7 +808,7 @@ def build_classifier_prompt(fields: Dict, combined_text: str, categorias: str) -
 === TEXTO DEL DOCUMENTO (primeras 500 palabras) ===
 {combined_text[:1000] if combined_text else "(sin texto)"}
 === FIN TEXTO ===
-
+{learnings_section}
 CATEGORÍAS DISPONIBLES:
 {categorias}
 
@@ -1363,7 +1369,14 @@ class DocumentPipelineAgent:
                             giro=""
                         )
                     else:
-                        cls_prompt = build_classifier_prompt(ctx["fields"], ctx["combined_text"], cat_names)
+                        # Cargar memoria de clasificaciones humanas
+                        _learnings_text = ""
+                        try:
+                            from classification_memory import get_classification_learnings
+                            _learnings_text = get_classification_learnings(self.empresa_id)
+                        except Exception as _learn_err:
+                            logger.warning(f"No se pudo cargar memoria de clasificaciones: {_learn_err}")
+                        cls_prompt = build_classifier_prompt(ctx["fields"], ctx["combined_text"], cat_names, _learnings_text)
 
                     classifier_system = cfg_classifier["system_prompt"] if cfg_classifier["system_prompt"] else CLASSIFIER_SYSTEM_PROMPT
                     llm_resp, cls_prompt_sent, cls_raw, cls_thinking = _ollama_generate(

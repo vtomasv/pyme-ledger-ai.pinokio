@@ -1192,7 +1192,14 @@ a:hover { text-decoration: underline; }
       </div>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
         <button class="btn btn-secondary btn-sm" onclick="showSection('nuevo-gasto')">➕ Nuevo Gasto</button>
-        <button class="btn btn-primary btn-sm" onclick="exportData()">⬇ Exportar</button>
+        <div style="position:relative;display:inline-block" id="exportDropdown">
+          <button class="btn btn-primary btn-sm" onclick="toggleExportMenu()">⬇ Exportar</button>
+          <div id="exportMenu" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:100;min-width:180px;overflow:hidden">
+            <button onclick="exportData('xlsx')" style="display:block;width:100%;padding:10px 16px;border:none;background:none;text-align:left;cursor:pointer;font-size:13px;color:var(--text-primary);border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='none'">📊 Excel (.xlsx)</button>
+            <button onclick="exportData('csv')" style="display:block;width:100%;padding:10px 16px;border:none;background:none;text-align:left;cursor:pointer;font-size:13px;color:var(--text-primary);border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='none'">📄 CSV (separador ;)</button>
+            <button onclick="exportData('pdf')" style="display:block;width:100%;padding:10px 16px;border:none;background:none;text-align:left;cursor:pointer;font-size:13px;color:var(--text-primary)" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='none'">📕 PDF (reporte)</button>
+          </div>
+        </div>
         <button class="btn btn-ghost btn-sm" onclick="toggleAssistant()" title="Asistente IA">🤖</button>
       </div>
     </div>
@@ -3694,14 +3701,30 @@ async function addCategory() {
 // ═══════════════════════════════════════════════════════════════
 // EXPORTAR
 // ═══════════════════════════════════════════════════════════════
-async function exportData() {
+function toggleExportMenu() {
+  const menu = document.getElementById('exportMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+// Cerrar menú al hacer click fuera
+document.addEventListener('click', (e) => {
+  const dd = document.getElementById('exportDropdown');
+  const menu = document.getElementById('exportMenu');
+  if (dd && menu && !dd.contains(e.target)) menu.style.display = 'none';
+});
+
+async function exportData(formato = 'xlsx') {
   if (!state.empresa) return;
+  const menu = document.getElementById('exportMenu');
+  if (menu) menu.style.display = 'none';
+  const labels = { xlsx: 'Excel', csv: 'CSV', pdf: 'PDF' };
+  showToast(`Generando ${labels[formato] || formato}...`, 'info');
   try {
-    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/export/csv`, { method: 'POST' });
+    const r = await fetch(`${API}/api/empresas/${state.empresa.id}/export/${formato}`, { method: 'POST' });
     const d = await r.json();
+    if (d.error) { showToast('Error: ' + d.error, 'error'); return; }
     if (d.filename) {
       window.open(`${API}/api/exports/${d.filename}`, '_blank');
-      showToast('CSV generado', 'success');
+      showToast(`${labels[formato] || formato} generado correctamente`, 'success');
     }
   } catch(e) {
     showToast('Error exportando: ' + e.message, 'error');

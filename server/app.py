@@ -5,6 +5,7 @@ API FastAPI con endpoints para empresas, documentos, analítica y exportación.
 import os
 import json
 import uuid
+import re as _re_mod
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
@@ -15,6 +16,11 @@ from fastapi.responses import RedirectResponse, FileResponse, StreamingResponse,
 from pydantic import BaseModel
 import uvicorn
 from sqlalchemy.orm import Session
+
+# Constantes de seguridad
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB máximo por archivo
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://127.0.0.1:11434')
 
 # Importar módulos
 from database import init_db, get_db, SessionLocal, save_json, load_json
@@ -52,6 +58,60 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================
+# Utilidades de seguridad
+# ============================================================
+
+def _sanitize_filename(name: str) -> str:
+    """Elimina caracteres peligrosos y path traversal de un nombre de archivo."""
+    name = Path(name).name  # Elimina directorios
+    name = _re_mod.sub(r'[^\w\-_. ]', '', name)  # Solo alfanuméricos, guiones, puntos, espacios
+    return name or "archivo"
+
+
+def _validate_path_within(file_path: Path, base_dir: Path) -> bool:
+    """Verifica que un path resuelto esté dentro del directorio base (anti path-traversal)."""
+    try:
+        file_path.resolve().relative_to(base_dir.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+# ============================================================
+# Endpoint: Health Check y estado de Ollama
+# ============================================================
+
+@app.get("/api/health")
+async def health_check():
+    """Health check del servidor y estado de Ollama."""
+    import urllib.request
+    result = {
+        "status": "ok",
+        "server": "running",
+        "timestamp": datetime.utcnow().isoformat(),
+        "ollama": {"status": "unknown", "models": []}
+    }
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            models = [m["name"] for m in data.get("models", [])]
+            result["ollama"] = {
+                "status": "running",
+                "url": OLLAMA_URL,
+                "models": models,
+                "models_count": len(models)
+            }
+    except urllib.error.URLError:
+        result["ollama"]["status"] = "not_running"
+        result["ollama"]["error"] = "Ollama no está ejecutándose. Reinicia el plugin."
+    except Exception as e:
+        result["ollama"]["status"] = "error"
+        result["ollama"]["error"] = str(e)
+    return result
 
 # ============================================================
 # Modelos Pydantic
@@ -330,18 +390,26 @@ async def upload_document(empresa_id: str, file: UploadFile = File(...)):
         if not empresa:
             raise HTTPException(status_code=404, detail="Empresa no encontrada")
 
-        # Guardar archivo con nombre único
-        original_name = file.filename or "documento"
+        # Validar y sanitizar nombre de archivo
+        original_name = _sanitize_filename(file.filename or "documento")
         file_extension = Path(original_name).suffix.lower()
-        if not file_extension or file_extension not in [".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"]:
-            file_extension = ".pdf"
+        if not file_extension or file_extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Extensi\u00f3n no permitida. Formatos aceptados: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            )
         file_id = str(uuid.uuid4())
         file_name = f"{file_id}{file_extension}"
         file_path = UPLOADS_DIR / file_name
 
         contents = await file.read()
         if not contents:
-            raise HTTPException(status_code=400, detail="Archivo vacío")
+            raise HTTPException(status_code=400, detail="Archivo vac\u00edo")
+        if len(contents) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Archivo demasiado grande ({len(contents) / 1024 / 1024:.1f} MB). M\u00e1ximo: {MAX_UPLOAD_BYTES / 1024 / 1024:.0f} MB"
+            )
 
         with open(str(file_path), "wb") as f:
             f.write(contents)
@@ -549,6 +617,38 @@ async def get_document(empresa_id: str, doc_id: str):
         db.close()
 
 
+# ============================================================
+# Memoria de clasificaciones humanas (skill de aprendizaje)
+# ============================================================
+
+from classification_memory import save_classification_learning, get_classification_learnings, set_data_dir as _set_learn_dir
+_set_learn_dir(DATA_DIR)
+
+
+def _save_classification_learning(
+    empresa_id: str, proveedor: str, descripcion: str,
+    tipo_documento: str, old_categoria, new_categoria_id: str,
+    db: Session
+):
+    """
+    Guarda la corrección de clasificación del usuario como aprendizaje.
+    Wrapper que resuelve el nombre de la categoría desde la BD.
+    """
+    from models import CategoriaContable
+    new_cat = db.query(CategoriaContable).filter(
+        CategoriaContable.id == new_categoria_id
+    ).first()
+    new_cat_name = new_cat.nombre if new_cat else new_categoria_id
+    save_classification_learning(
+        empresa_id=empresa_id,
+        proveedor=proveedor,
+        descripcion=descripcion,
+        tipo_documento=tipo_documento,
+        new_cat_name=new_cat_name,
+        new_categoria_id=new_categoria_id
+    )
+
+
 @app.put("/api/empresas/{empresa_id}/documentos/{doc_id}")
 async def update_document(empresa_id: str, doc_id: str, update: DocumentoUpdate):
     """Actualiza un documento. Soporta todos los campos editables incluyendo montos."""
@@ -563,8 +663,23 @@ async def update_document(empresa_id: str, doc_id: str, update: DocumentoUpdate)
             raise HTTPException(status_code=404, detail="Documento no encontrado")
         
         # Campos de clasificación y estado
+        old_categoria_id = doc.categoria_id
         if update.categoria_id is not None:
             doc.categoria_id = update.categoria_id
+            # Si el usuario cambió la categoría, guardar como aprendizaje
+            if update.categoria_id != old_categoria_id:
+                try:
+                    _save_classification_learning(
+                        empresa_id=empresa_id,
+                        proveedor=doc.proveedor or update.proveedor or "",
+                        descripcion=doc.texto_extraido[:200] if doc.texto_extraido else "",
+                        tipo_documento=doc.tipo_documento.value if doc.tipo_documento else "",
+                        old_categoria=None,  # se resuelve abajo
+                        new_categoria_id=update.categoria_id,
+                        db=db
+                    )
+                except Exception as learn_err:
+                    print(f"WARN: Error guardando aprendizaje de clasificaci\u00f3n: {learn_err}")
         if update.centro_costo_id is not None:
             doc.centro_costo_id = update.centro_costo_id
         if update.estado_revision is not None:
@@ -714,6 +829,22 @@ async def export_csv(empresa_id: str, period_days: int = 30):
         db.close()
 
 
+@app.post("/api/empresas/{empresa_id}/export/xlsx")
+async def export_xlsx(empresa_id: str, period_days: int = 30):
+    """Exporta documentos a Excel (.xlsx) con formato profesional."""
+    db = SessionLocal()
+    try:
+        exporter = get_export_engine(db, empresa_id, str(DATA_DIR))
+        result = exporter.export_to_xlsx(period_days)
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+    finally:
+        db.close()
+
+
 @app.post("/api/empresas/{empresa_id}/export/pdf")
 async def export_pdf(empresa_id: str, period_days: int = 30):
     """Exporta reporte a PDF."""
@@ -755,14 +886,18 @@ async def export_ledger(empresa_id: str, period_days: int = 30):
 @app.get("/api/exports/{filename}")
 async def download_export(filename: str):
     """Descarga un archivo exportado."""
-    file_path = DATA_DIR / "exports" / filename
+    # Sanitizar para prevenir path traversal
+    safe_name = _sanitize_filename(filename)
+    file_path = DATA_DIR / "exports" / safe_name
     
+    if not _validate_path_within(file_path, DATA_DIR / "exports"):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     
     return FileResponse(
-        path=file_path,
-        filename=filename,
+        path=str(file_path),
+        filename=safe_name,
         media_type="application/octet-stream"
     )
 
@@ -1092,7 +1227,7 @@ Pregunta del usuario: {msg.message}"""
 
         try:
             r = _req.post(
-                f"{os.environ.get('OLLAMA_URL', 'http://127.0.0.1:11434')}/api/generate",
+                f"{OLLAMA_URL}/api/generate",
                 json={
                     "model": llm_model,
                     "prompt": user_prompt,
@@ -1295,7 +1430,7 @@ async def update_agent(agent_id: str, config: dict):
             if new_model and new_model not in ("tesseract", "reglas", "moondream"):
                 try:
                     import requests as _req
-                    r = _req.get(f"{os.environ.get('OLLAMA_URL', 'http://127.0.0.1:11434')}/api/tags", timeout=3)
+                    r = _req.get(f"{OLLAMA_URL}/api/tags", timeout=3)
                     models = [m["name"] for m in r.json().get("models", [])]
                     if new_model not in models:
                         return {"ok": True, "warning": f"Modelo '{new_model}' no encontrado en Ollama. Descarga con: ollama pull {new_model}"}
