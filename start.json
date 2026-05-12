@@ -4,7 +4,7 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#f1f5f9'>Iniciando Pyme Ledger AI...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#0D3DA6'>Iniciando Pyme Ledger AI...</h3></div>"
       }
     },
 

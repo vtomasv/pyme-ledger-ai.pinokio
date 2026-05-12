@@ -53,10 +53,22 @@ def is_model_available(model_name: str) -> bool:
         return False
 
 
-def pull_model(model_name: str) -> bool:
-    """Descarga un modelo via la API HTTP de Ollama (streaming)."""
-    log(f"Descargando {model_name}...")
+def pull_model(model_name: str, max_retries: int = 3) -> bool:
+    """Descarga un modelo via la API HTTP de Ollama con reintentos."""
+    for attempt in range(1, max_retries + 1):
+        log(f"Descargando {model_name} (intento {attempt}/{max_retries})...")
+        success = _pull_model_once(model_name)
+        if success:
+            return True
+        if attempt < max_retries:
+            wait = 5 * attempt
+            log(f"Reintentando en {wait}s...")
+            time.sleep(wait)
+    return False
 
+
+def _pull_model_once(model_name: str) -> bool:
+    """Intento unico de descarga de un modelo."""
     try:
         payload = json.dumps({"name": model_name, "stream": True}).encode("utf-8")
         req = urllib.request.Request(
@@ -101,10 +113,10 @@ def pull_model(model_name: str) -> bool:
         return True
 
     except urllib.error.HTTPError as e:
-        log(f"ERROR HTTP {e.code} descargando {model_name}: {e.reason}")
+        log(f"ERROR HTTP {e.code}: {e.reason}")
         return False
     except Exception as e:
-        log(f"ERROR descargando {model_name}: {e}")
+        log(f"ERROR: {e}")
         return False
 
 
