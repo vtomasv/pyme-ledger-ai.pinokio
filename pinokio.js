@@ -1,28 +1,15 @@
-const path = require("path")
-const fs = require("fs")
-
 module.exports = {
   title: "CCS — Pyme Ledger AI",
   description: "Clasificación inteligente de gastos con IA local para PyMEs — 100% offline | CCS",
   icon: "icon.png",
-  version: "1.4.0",
+  version: "1.5.0",
 
   menu: async (kernel, info) => {
-    // Verificar instalación: comprobar que el venv existe (cross-platform)
-    const isWin = process.platform === "win32"
-    const venvMarker = isWin
-      ? path.resolve(__dirname, "venv", "Scripts", "python.exe")
-      : path.resolve(__dirname, "venv", "bin", "python")
+    // Verificar instalación usando API de Pinokio (cross-platform)
+    const installed = await kernel.exists(__dirname, "venv")
 
-    let installed = false
-    try {
-      installed = fs.existsSync(venvMarker)
-    } catch (e) {
-      installed = false
-    }
-
-    // Verificar si está corriendo usando la info que Pinokio provee
-    const running = info && info.running
+    // Verificar si está corriendo usando API de Pinokio
+    const running = await kernel.script.running(__dirname, "start.json")
 
     // ---- Estado: No instalado ----
     if (!installed) {

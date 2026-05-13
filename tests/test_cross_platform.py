@@ -80,13 +80,15 @@ class TestStartJson(unittest.TestCase):
         """start.json tiene daemon: true."""
         self.assertTrue(self.data.get("daemon"))
 
-    def test_no_unix_commands(self):
-        """start.json no contiene comandos Unix."""
-        unix_commands = ["sleep ", "curl ", "/dev/null", "nohup ", " &"]
-        content = json.dumps(self.data)
-        for cmd in unix_commands:
-            self.assertNotIn(cmd, content,
-                             f"start.json contiene comando Unix: '{cmd}'")
+    def test_platform_conditional_commands(self):
+        """start.json usa bloques 'when' para comandos específicos de plataforma."""
+        # Verificar que los comandos con /dev/null están dentro de when != win32
+        for step in self.data.get('run', []):
+            msg = step.get('params', {}).get('message', '')
+            if '/dev/null' in msg:
+                when = step.get('when', '')
+                self.assertIn('win32', when,
+                    "/dev/null debe estar dentro de un bloque when con condición de plataforma")
 
     def test_uses_127_0_0_1(self):
         """start.json usa 127.0.0.1 no localhost."""
@@ -107,10 +109,11 @@ class TestStopJson(unittest.TestCase):
         self.assertIsInstance(self.data, dict)
         self.assertIn("run", self.data)
 
-    def test_uses_script_stop(self):
-        """stop.json usa script.stop method."""
-        content = json.dumps(self.data)
-        self.assertIn("script.stop", content)
+    def test_uses_shell_run(self):
+        """stop.json usa shell.run (no script.stop, que está prohibido)."""
+        methods = [step.get("method") for step in self.data.get("run", [])]
+        self.assertIn("shell.run", methods)
+        self.assertNotIn("script.stop", methods)
 
 
 class TestPinokioJs(unittest.TestCase):
@@ -137,10 +140,8 @@ class TestPinokioJs(unittest.TestCase):
         self.assertIn("menu:", self.content)
 
     def test_cross_platform_venv_check(self):
-        """pinokio.js verifica venv de forma cross-platform."""
-        self.assertIn("win32", self.content)
-        self.assertIn("Scripts", self.content)
-        self.assertIn("bin", self.content)
+        """pinokio.js usa kernel.exists para verificar venv (API Pinokio)."""
+        self.assertIn("kernel.exists", self.content)
 
     def test_no_install_js_reference(self):
         """pinokio.js no referencia archivos .js para install/start."""

@@ -4,35 +4,54 @@
     {
       "method": "log",
       "params": {
-        "html": "<div style='padding:16px'><h3 style='color:#0D3DA6'>Iniciando Pyme Ledger AI...</h3></div>"
+        "html": "<div style='padding:16px'><h3 style='color:#0D3DA6'>Iniciando Pyme Ledger AI...</h3><p style='color:#64748b'>Verificando motor de IA y servidor...</p></div>"
       }
     },
-
+    {
+      "when": "{{platform !== 'win32'}}",
+      "method": "shell.run",
+      "params": {
+        "message": "curl -s http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && echo OLLAMA_OK || (ollama serve > /dev/null 2>&1 & sleep 3 && echo OLLAMA_STARTED)"
+      }
+    },
+    {
+      "when": "{{platform === 'win32'}}",
+      "method": "shell.run",
+      "params": {
+        "message": "curl -s http://127.0.0.1:11434/api/tags > nul 2>&1 && echo OLLAMA_OK || (start /B ollama serve && ping -n 4 127.0.0.1 > nul && echo OLLAMA_STARTED)"
+      }
+    },
     {
       "method": "shell.run",
       "params": {
-        "message": "python scripts/start_ollama.py",
-        "path": "{{cwd}}"
-      }
-    },
-
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "python launcher.py",
-        "path": "{{cwd}}",
+        "venv": "venv",
         "env": {
           "PORT": "{{port}}",
           "DATA_DIR": "{{path.resolve(cwd, 'data')}}",
           "PLUGIN_DIR": "{{cwd}}",
-          "OLLAMA_URL": "http://127.0.0.1:11434"
+          "OLLAMA_URL": "http://127.0.0.1:11434",
+          "PYTHONUNBUFFERED": "1",
+          "PYTHONIOENCODING": "utf-8"
         },
+        "message": "python server/app.py",
         "on": [
           {
-            "event": "/Uvicorn running/",
+            "event": "/(http:\\/\\/[0-9.:]+)/",
             "done": true
           }
         ]
+      }
+    },
+    {
+      "method": "local.set",
+      "params": {
+        "url": "{{input.event[0]}}"
+      }
+    },
+    {
+      "method": "browser.open",
+      "params": {
+        "uri": "{{local.url}}/ui/index.html"
       }
     }
   ]

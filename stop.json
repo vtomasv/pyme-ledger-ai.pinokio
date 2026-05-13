@@ -1,9 +1,25 @@
 {
   "run": [
     {
-      "method": "script.stop",
+      "method": "log",
       "params": {
-        "path": "start.json"
+        "html": "<div style='padding:16px'><h3 style='color:#0D3DA6'>Deteniendo Pyme Ledger AI...</h3></div>"
+      }
+    },
+    {
+      "when": "{{platform !== 'win32'}}",
+      "method": "shell.run",
+      "params": {
+        "message": "pkill -f 'python server/app.py' 2>/dev/null; pkill -f 'python3 server/app.py' 2>/dev/null; pkill -f 'python launcher.py' 2>/dev/null; pkill -f 'python3 launcher.py' 2>/dev/null; echo 'Servidor detenido'",
+        "path": "{{cwd}}"
+      }
+    },
+    {
+      "when": "{{platform === 'win32'}}",
+      "method": "shell.run",
+      "params": {
+        "message": "wmic process where \"commandline like '%%server/app.py%%' and name='python.exe'\" call terminate 2>nul & wmic process where \"commandline like '%%server\\\\app.py%%' and name='python.exe'\" call terminate 2>nul & wmic process where \"commandline like '%%launcher.py%%' and name='python.exe'\" call terminate 2>nul & echo Servidor detenido",
+        "path": "{{cwd}}"
       }
     },
     {

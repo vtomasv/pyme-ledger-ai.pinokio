@@ -1111,7 +1111,7 @@ a:hover { text-decoration: underline; }
 .insight-card.success { border-left: 3px solid var(--green); }
 .insight-card.warning { border-left: 3px solid var(--orange); }
 
-/* ── Responsive ─────────────────────────────────────────────── */
+/* ── Responsive ───────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .ng-layout { grid-template-columns: 1fr; }
   .ng-side { display: none; }
@@ -1123,9 +1123,123 @@ a:hover { text-decoration: underline; }
   .sidebar { width: 0; min-width: 0; overflow: hidden; }
   .form-row { grid-template-columns: 1fr; }
 }
+
+/* ── Readiness Banner ──────────────────────────────────────────── */
+.readiness-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600;
+  transition: all 0.3s ease;
+  margin-bottom: 14px;
+}
+.readiness-banner.ready {
+  background: #ecfdf5; border: 1px solid #3DAE2B; color: #166534;
+}
+.readiness-banner.warning {
+  background: #fffbeb; border: 1px solid #f59e0b; color: #92400e;
+}
+.readiness-banner.error {
+  background: #fef2f2; border: 1px solid #dc2626; color: #991b1b;
+}
+.readiness-banner.loading {
+  background: #eff6ff; border: 1px solid #3b82f6; color: #1e40af;
+}
+.readiness-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.readiness-dot.green { background: #3DAE2B; animation: pulse-dot 2s infinite; }
+.readiness-dot.yellow { background: #f59e0b; animation: pulse-dot 1.5s infinite; }
+.readiness-dot.red { background: #dc2626; }
+.readiness-dot.blue { background: #3b82f6; animation: pulse-dot 1s infinite; }
+
+/* ── Global Loading Overlay ────────────────────────────────────── */
+.global-overlay {
+  position: fixed; inset: 0;
+  background: rgba(247,248,250,0.92);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 9999;
+  transition: opacity 0.3s;
+}
+.global-overlay.hidden { opacity: 0; pointer-events: none; }
+.global-overlay .spinner-lg {
+  width: 48px; height: 48px;
+  border: 4px solid var(--border);
+  border-top-color: var(--ccs-azul-oscuro);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.global-overlay .overlay-text {
+  margin-top: 16px; font-size: 15px; font-weight: 600;
+  color: var(--ccs-azul-oscuro);
+}
+.global-overlay .overlay-sub {
+  margin-top: 6px; font-size: 12px; color: var(--text2);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Model Semaphore Card ──────────────────────────────────────── */
+.semaphore-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px; margin-top: 12px;
+}
+.semaphore-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all 0.2s;
+}
+.semaphore-card:hover { box-shadow: var(--shadow); }
+.semaphore-grade {
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800;
+  color: #fff;
+}
+.semaphore-info { flex: 1; }
+.semaphore-model { font-size: 13px; font-weight: 700; color: var(--text); }
+.semaphore-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.semaphore-params { font-size: 10px; color: var(--text3); }
+
+/* ── Usage Stats Card ─────────────────────────────────────────── */
+.usage-stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px; margin-top: 10px;
+}
+.usage-stat {
+  padding: 12px; text-align: center;
+  background: var(--bg3); border-radius: var(--radius-sm);
+}
+.usage-stat .stat-val { font-size: 20px; font-weight: 800; color: var(--ccs-azul-oscuro); }
+.usage-stat .stat-label { font-size: 10px; color: var(--text2); margin-top: 2px; }
+
+/* ── Topbar Windows padding (titlebar area) ───────────────── */
+@media (display-mode: window-controls-overlay) {
+  .topbar { padding-right: 140px; }
+}
+
+/* ── Injection Warning ─────────────────────────────────────────── */
+.injection-warning {
+  background: #fef2f2; border: 1px solid #fca5a5;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px; margin-top: 6px;
+  font-size: 11px; color: #991b1b;
+  display: flex; align-items: center; gap: 6px;
+}
 </style>
 </head>
 <body>
+
+<!-- Global Loading Overlay -->
+<div class="global-overlay" id="globalOverlay">
+  <div class="spinner-lg"></div>
+  <div class="overlay-text" id="overlayText">Iniciando Pyme Ledger AI...</div>
+  <div class="overlay-sub" id="overlaySub">Verificando motor de IA y servidor</div>
+</div>
 
 <div class="toast-container" id="toastContainer"></div>
 
@@ -1332,21 +1446,206 @@ let state = {
 // INIT
 // ═══════════════════════════════════════════════════════════════
 async function init() {
-  await loadEmpresas();
-  if (!state.empresas.length) {
+  showOverlay('Iniciando Pyme Ledger AI...', 'Conectando con el servidor...');
+  try {
+    // Paso 1: Verificar servidor
+    showOverlay('Verificando servidor...', 'Conectando con la API...');
+    await loadEmpresas();
+
+    // Paso 2: Verificar readiness (Ollama + modelos)
+    showOverlay('Verificando motor de IA...', 'Comprobando Ollama y modelos disponibles...');
+    await checkReadiness();
+
+    // Paso 3: Cargar datos
+    if (!state.empresas.length) {
+      hideOverlay();
+      showOnboarding();
+      return;
+    }
+    state.empresa = state.empresas[0];
+    updateSidebarEmpresa();
+    showOverlay('Cargando datos...', `Empresa: ${state.empresa.razon_social}`);
+    await loadCategorias();
+
+    hideOverlay();
+    showSection('dashboard');
+
+    // Abrir asistente con bienvenida después de 1s
+    setTimeout(() => {
+      openAssistant();
+      addAsstMsg(`¡Hola! Soy tu asistente contable con IA local. 🤖\n\nPuedo ayudarte a procesar documentos, clasificar gastos y analizar tus finanzas. ¿En qué te ayudo hoy?`);
+    }, 1200);
+
+    // Verificar rendimiento de modelos en background
+    loadHardwarePerformance();
+  } catch(e) {
+    console.error('Init error:', e);
+    hideOverlay();
     showOnboarding();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OVERLAY GLOBAL
+// ═══════════════════════════════════════════════════════════════
+function showOverlay(text, sub) {
+  const ov = document.getElementById('globalOverlay');
+  if (!ov) return;
+  ov.classList.remove('hidden');
+  const t = document.getElementById('overlayText');
+  const s = document.getElementById('overlaySub');
+  if (t) t.textContent = text || 'Cargando...';
+  if (s) s.textContent = sub || '';
+}
+
+function hideOverlay() {
+  const ov = document.getElementById('globalOverlay');
+  if (ov) ov.classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// READINESS CHECK (semáforo del sistema)
+// ═══════════════════════════════════════════════════════════════
+async function checkReadiness() {
+  try {
+    const r = await fetch(`${API}/api/readiness`);
+    const d = await r.json();
+    state.readiness = d;
+    state.ollamaOnline = d.ollama;
+    state.ollamaModels = d.available_models || [];
+    updateModelPill(d);
+    return d;
+  } catch(e) {
+    state.ollamaOnline = false;
+    state.ollamaModels = [];
+    state.readiness = { ready: false, status: 'error', message: 'No se pudo conectar con el servidor' };
+    updateModelPill(state.readiness);
+    return state.readiness;
+  }
+}
+
+function updateModelPill(d) {
+  const dot = document.getElementById('modelDot');
+  const name = document.getElementById('modelName');
+  const sub = document.getElementById('modelSubtitle');
+  if (!dot || !name) return;
+
+  if (d.ready) {
+    dot.className = 'model-dot online';
+    name.textContent = 'Motor IA activo';
+    if (sub) sub.textContent = `${d.models_count} modelo(s) • ${d.default_model}`;
+  } else if (d.status === 'model_missing') {
+    dot.className = 'model-dot';
+    dot.style.background = 'var(--yellow)';
+    name.textContent = 'Descargando modelo...';
+    if (sub) sub.textContent = d.message;
+  } else {
+    dot.className = 'model-dot offline';
+    name.textContent = 'Motor IA offline';
+    if (sub) sub.textContent = d.message || 'Ollama no detectado';
+  }
+}
+
+// Polling de readiness cada 30s
+setInterval(async () => {
+  if (state.currentSection !== 'onboarding') {
+    await checkReadiness();
+  }
+}, 30000);
+
+// ═══════════════════════════════════════════════════════════════
+// HARDWARE PERFORMANCE (semáforo de modelos)
+// ═══════════════════════════════════════════════════════════════
+async function loadHardwarePerformance(force = false) {
+  try {
+    const r = await fetch(`${API}/api/hardware/performance?force=${force}`);
+    state.hardwarePerf = await r.json();
+  } catch(e) {
+    state.hardwarePerf = null;
+  }
+}
+
+function renderModelSemaphore(container) {
+  if (!state.hardwarePerf || !state.hardwarePerf.models) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:12px">Cargando información de rendimiento...</div>';
     return;
   }
-  state.empresa = state.empresas[0];
-  updateSidebarEmpresa();
-  await loadCategorias();
-  showSection('dashboard');
-  checkOllamaStatus();
-  // Abrir asistente con bienvenida después de 1s
-  setTimeout(() => {
-    openAssistant();
-    addAsstMsg(`¡Hola! Soy tu asistente contable con IA local. 🤖\n\nPuedo ayudarte a procesar documentos, clasificar gastos y analizar tus finanzas. ¿En qué te ayudo hoy?`);
-  }, 1200);
+  const hw = state.hardwarePerf.hardware;
+  const models = state.hardwarePerf.models;
+  container.innerHTML = `
+    <div style="margin-bottom:10px;font-size:12px;color:var(--text2)">
+      <strong>Hardware:</strong> ${hw.cpu_name || 'CPU'} • ${hw.ram_gb} GB RAM • ${hw.gpu_name}
+    </div>
+    <div class="semaphore-grid">
+      ${models.map(m => `
+        <div class="semaphore-card">
+          <div class="semaphore-grade" style="background:${m.color}">${m.grade}</div>
+          <div class="semaphore-info">
+            <div class="semaphore-model">${escHtml(m.model)}</div>
+            <div class="semaphore-desc">${escHtml(m.description)}</div>
+            <div class="semaphore-params">${m.params_b}B parámetros • ~${m.tps} tok/s</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAFE DISPLAY VALUE (previene [object Object])
+// ═══════════════════════════════════════════════════════════════
+function safeDisplayValue(val) {
+  if (val === null || val === undefined) return 'No disponible';
+  if (typeof val === 'object') {
+    if (Array.isArray(val)) return val.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ');
+    return JSON.stringify(val, null, 2);
+  }
+  return String(val);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USAGE STATS
+// ═══════════════════════════════════════════════════════════════
+async function loadUsageStats() {
+  try {
+    const r = await fetch(`${API}/api/usage-stats`);
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+function renderUsageStats(container, stats) {
+  if (!stats) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:12px">Sin datos de uso aún</div>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="usage-stats-grid">
+      <div class="usage-stat">
+        <div class="stat-val">${stats.total_calls || 0}</div>
+        <div class="stat-label">Llamadas IA</div>
+      </div>
+      <div class="usage-stat">
+        <div class="stat-val">${stats.successful_calls || 0}</div>
+        <div class="stat-label">Exitosas</div>
+      </div>
+      <div class="usage-stat">
+        <div class="stat-val">${stats.injection_attempts_blocked || 0}</div>
+        <div class="stat-label">Inyecciones bloqueadas</div>
+      </div>
+      <div class="usage-stat">
+        <div class="stat-val">${((stats.total_input_tokens || 0) + (stats.total_output_tokens || 0)).toLocaleString()}</div>
+        <div class="stat-label">Tokens procesados</div>
+      </div>
+      <div class="usage-stat">
+        <div class="stat-val">$${(stats.total_savings_usd || 0).toFixed(4)}</div>
+        <div class="stat-label">Ahorro vs Cloud</div>
+      </div>
+      <div class="usage-stat">
+        <div class="stat-val">${stats.avg_latency_ms || 0}ms</div>
+        <div class="stat-label">Latencia promedio</div>
+      </div>
+    </div>
+  `;
 }
 
 async function loadEmpresas() {
@@ -1366,31 +1665,8 @@ async function loadCategorias() {
   } catch(e) { state.categorias = []; }
 }
 
-async function checkOllamaStatus() {
-  try {
-    const r = await fetch('http://localhost:11434/api/tags', {
-      signal: AbortSignal.timeout(3000)
-    });
-    if (r.ok) {
-      const d = await r.json();
-      const models = (d.models || []).map(m => m.name);
-      const hasModel = models.length > 0;
-      document.getElementById('modelName').textContent = hasModel ? 'Motor IA activo' : 'Sin modelos';
-      document.getElementById('modelDot').className = 'model-dot ' + (hasModel ? 'online' : 'offline');
-      const sub = document.getElementById('modelSubtitle');
-      if (sub) sub.textContent = hasModel ? `${models.length} modelo(s) disponible(s)` : 'Sin modelos instalados';
-      state.ollamaOnline = hasModel;
-      state.ollamaModels = models;
-    }
-  } catch(e) {
-    document.getElementById('modelName').textContent = 'Motor IA offline';
-    document.getElementById('modelDot').className = 'model-dot offline';
-    const sub = document.getElementById('modelSubtitle');
-    if (sub) sub.textContent = 'Ollama no detectado';
-    state.ollamaOnline = false;
-    state.ollamaModels = [];
-  }
-}
+// checkOllamaStatus reemplazado por checkReadiness() que usa /api/readiness
+async function checkOllamaStatus() { return checkReadiness(); }
 
 function updateSidebarEmpresa() {
   if (state.empresa) {
@@ -1847,7 +2123,18 @@ async function refreshDashboardData() {
 
 async function renderDashboard() {
   if (!state.empresa) { showOnboarding(); return; }
+  // Generar readiness banner
+  const rd = state.readiness || {};
+  let bannerClass = 'loading', bannerDot = 'blue', bannerText = 'Verificando sistema...';
+  if (rd.ready) { bannerClass = 'ready'; bannerDot = 'green'; bannerText = `Sistema listo — ${rd.models_count} modelo(s) disponible(s) • ${rd.default_model}`; }
+  else if (rd.status === 'ollama_offline') { bannerClass = 'error'; bannerDot = 'red'; bannerText = 'Ollama no está ejecutándose. Reinicia el plugin.'; }
+  else if (rd.status === 'model_missing') { bannerClass = 'warning'; bannerDot = 'yellow'; bannerText = `Modelo '${rd.default_model}' no encontrado. Descargando automáticamente...`; }
+
   document.getElementById('mainContent').innerHTML = `
+    <div class="readiness-banner ${bannerClass}" id="readinessBanner">
+      <div class="readiness-dot ${bannerDot}"></div>
+      <span>${bannerText}</span>
+    </div>
     <div class="kpi-grid" id="kpiGrid">
       ${[1,2,3,4].map(() => `
         <div class="kpi-card">
@@ -1867,6 +2154,12 @@ async function renderDashboard() {
     </div>
     <div style="margin-top:18px">
       <div class="card">
+        <div class="card-title">💻 Rendimiento de Modelos IA</div>
+        <div id="semaphoreContainer"><div class="spinner" style="margin:10px auto"></div></div>
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="card">
         <div class="card-title">⚡ Documentos Recientes</div>
         <div id="recentDocs"><div class="spinner" style="margin:10px auto"></div></div>
       </div>
@@ -1882,6 +2175,16 @@ async function renderDashboard() {
     renderCatChart(cats);
     renderTrendChart(trend);
     renderRecentDocs();
+    // Renderizar semáforo de modelos
+    const semContainer = document.getElementById('semaphoreContainer');
+    if (semContainer) {
+      if (state.hardwarePerf) {
+        renderModelSemaphore(semContainer);
+      } else {
+        await loadHardwarePerformance();
+        renderModelSemaphore(semContainer);
+      }
+    }
   } catch(e) { console.error(e); }
 }
 
@@ -3339,8 +3642,15 @@ const CONTEXTO_LABELS = {
 function renderAgentesGrid() {
   const mc = document.getElementById('mainContent');
   mc.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;gap:8px">
-      <button class="btn btn-secondary btn-sm" onclick="resetAgentes()">&#8635; Restaurar defaults</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:13px;color:var(--text2)">Configura los agentes IA del pipeline de clasificación</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="resetAgentes()">&#8635; Restaurar defaults</button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">📊 Estadísticas de Uso del Motor IA</div>
+      <div id="usageStatsContainer"><div class="spinner" style="margin:10px auto"></div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px" id="agentesGrid"></div>
     <div class="modal-overlay" id="agentModal" style="z-index:9999">
@@ -3375,6 +3685,11 @@ function renderAgentesGrid() {
       </div>
     </div>
   `).join('');
+  // Cargar estadísticas de uso
+  loadUsageStats().then(stats => {
+    const container = document.getElementById('usageStatsContainer');
+    if (container) renderUsageStats(container, stats);
+  });
 }
 
 function openAgentModal(agentId) {
