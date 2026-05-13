@@ -16,7 +16,7 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 
 MODELS = [
     {
-        "name": "qwen3.5:0.8b",
+        "name": "qwen3:0.6b",
         "description": "Agente de lenguaje para extraccion y clasificacion (~500MB)",
     },
     {

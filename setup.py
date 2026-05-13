@@ -44,7 +44,7 @@ else:
     VENV_PYTHON = VENV_DIR / "bin" / "python"
 
 # Modelo IA único del plugin
-AI_MODEL = "qwen3.5:0.8b"
+AI_MODEL = "qwen3:0.6b"
 
 
 def log(msg: str):

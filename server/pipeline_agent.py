@@ -6,7 +6,7 @@ Arquitectura de 6 pasos con streaming SSE y contexto acumulado:
   Paso 1: OCR         — Tesseract multi-PSM + preprocesamiento de imagen
                         → Produce: texto OCR bruto
 
-  Paso 2: Visión IA   — Modelo de visión (qwen3.5:0.8b con imagen en base64)
+  Paso 2: Visión IA   — Modelo de visión (moondream/llava con imagen en base64)
                         → Recibe: IMAGEN + prompt + texto OCR del paso 1
                         → Produce: campos visuales + texto adicional
 
@@ -51,18 +51,19 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 
-## ── Modelos soportados por agente ──────────────────────────────────────
-QWEN_MODEL = "qwen3.5:0.8b"      # Agentes visuales (OCR+Visual+Extractor)
+## ── Modelos soportados por agente ──────────────────────────────────────────────────────
+# NOTA: qwen3 es solo texto. Para visión usar moondream/llava/minicpm-v.
+QWEN_MODEL = "qwen3:0.6b"        # Agente de texto pequeño (extracción, clasificación)
 LLAMA_MODEL = "llama3.2:3b"      # Agentes de razonamiento (Clasificador+Auditor+Recomendador)
 
 # Listas de preferencia por tipo de tarea
-VISION_MODELS = ["qwen3.5:0.8b", "llava:7b", "llava:13b"]  # Modelos con soporte de imagen
-TEXT_MODELS   = ["qwen3.5:0.8b", "llama3.2:3b", "llama3:8b"]  # Fallback genérico
-LLAMA_TEXT_MODELS = ["llama3.2:3b", "llama3:8b", "qwen3.5:0.8b"]  # Preferencia llama base64
+# Para visión: moondream es el más ligero con soporte de imagen
+VISION_MODELS = ["moondream", "llava:7b", "minicpm-v", "llava:13b"]  # Modelos con soporte de imagen
+TEXT_MODELS   = ["qwen3:0.6b", "qwen3:1.7b", "llama3.2:3b", "llama3:8b"]  # Fallback genérico
+LLAMA_TEXT_MODELS = ["llama3.2:3b", "llama3:8b", "qwen3:0.6b"]  # Preferencia llama
 
 
-# ── Utilidades Ollama ─────────────────────────────────────────────────────────
-
+# ── Utilidades Ollama ─────────────────────────────────────────────────────────────
 def _ollama_list() -> List[str]:
     """Lista modelos disponibles en Ollama."""
     try:
@@ -197,7 +198,7 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
     """
     Llama a Ollama y retorna (respuesta_limpia, prompt_enviado, respuesta_raw).
     Soporta imágenes en base64 para modelos multimodales.
-    Para qwen3.5: activa thinking nativo con think=True en options.
+    Para qwen3: activa thinking nativo con think=True en options.
     """
     try:
         import requests
@@ -216,7 +217,7 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
                 "top_p": 0.9
             }
         }
-        # Activar thinking nativo para qwen3.5 (Ollama >= 0.7)
+        # Activar thinking nativo para qwen3 (Ollama >= 0.7)
         if enable_thinking and "qwen" in model.lower():
             payload["think"] = True
 
@@ -235,7 +236,7 @@ def _ollama_generate(model: str, prompt: str, image_b64: Optional[str] = None,
             clean_response = re.sub(r'<think>[\s\S]*?</think>', '', raw_response, flags=re.IGNORECASE).strip()
 
             # — Fallback: si clean_response no contiene JSON válido pero thinking sí,
-            #   extraer el JSON del thinking (qwen3.5 a veces pone el JSON solo en thinking
+            #   extraer el JSON del thinking (qwen3 a veces pone el JSON solo en thinking
             #   cuando el response se trunca antes de llegar al JSON final)
             if enable_thinking and thinking_text:
                 # Verificar si clean_response tiene JSON válido
@@ -898,7 +899,7 @@ def _parse_json_response(text: str) -> Dict:
     """
     if not text:
         return {}
-    # Eliminar thinking tags de qwen3.5 (<think>...</think>)
+    # Eliminar thinking tags de qwen3 (<think>...</think>)
     text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
     if not text:
         return {}
@@ -996,7 +997,7 @@ class DocumentPipelineAgent:
         # Defaults por agente
         agent_defaults = {
             # max_tokens aumentados para evitar truncamiento del JSON de salida.
-            # Con thinking activado, qwen3.5 consume tokens en el razonamiento interno
+            # Con thinking activado, qwen3 consume tokens en el razonamiento interno
             # antes de generar el JSON final, por lo que necesita más tokens de salida.
             "vision":       {"modelo": QWEN_MODEL,  "timeout": 300, "temperature": 0.1, "max_tokens": 4096},
             "extractor":    {"modelo": QWEN_MODEL,  "timeout": 240, "temperature": 0.1, "max_tokens": 3000},
@@ -1040,7 +1041,8 @@ class DocumentPipelineAgent:
         ext = Path(file_path).suffix.lower()
         vision_model, llama_model = self._get_models()
         # Alias para compatibilidad con el resto del pipeline
-        text_model = vision_model  # qwen para OCR/Visual/Extractor
+        # text_model: para agentes que no necesitan visión, usar el mejor texto disponible
+        text_model = _find_best_model(TEXT_MODELS, self._available_models or []) or vision_model or llama_model
         # llama_model para Clasificador/Auditor
 
         # Determinar si el archivo es una imagen (para enviar a modelos de visión)
@@ -1146,10 +1148,10 @@ class DocumentPipelineAgent:
             })
             try:
                 # Usar prompt/system_prompt configurado, sino el default
-                # Para qwen3.5: habilitar thinking con /think al inicio del prompt
+                # Para qwen3: habilitar thinking con /think al inicio del prompt
                 vision_prompt = cfg_vision["prompt"] if cfg_vision["prompt"] else build_vision_prompt(ctx["ocr_text"])
                 vision_system = cfg_vision["system_prompt"] if cfg_vision["system_prompt"] else VISION_SYSTEM_PROMPT
-                # Activar thinking nativo para qwen3.5 (quitar prefijo /think manual)
+                # Activar thinking nativo para qwen3 (quitar prefijo /think manual)
                 is_qwen_vision = "qwen" in vision_model_to_use.lower()
                 if is_qwen_vision and vision_prompt.startswith("/think\n"):
                     vision_prompt = vision_prompt[len("/think\n"):]
@@ -1245,7 +1247,7 @@ class DocumentPipelineAgent:
                     extractor_prompt = build_extractor_prompt(ctx["ocr_text"], ctx["vision_fields"])
 
                 extractor_system = cfg_extractor["system_prompt"] if cfg_extractor["system_prompt"] else EXTRACTOR_SYSTEM_PROMPT
-                # Activar thinking nativo para qwen3.5
+                # Activar thinking nativo para qwen3
                 is_qwen_extractor = "qwen" in extractor_model_to_use.lower()
                 if is_qwen_extractor and extractor_prompt.startswith("/think\n"):
                     extractor_prompt = extractor_prompt[len("/think\n"):]

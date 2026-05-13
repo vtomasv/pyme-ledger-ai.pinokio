@@ -1363,7 +1363,7 @@ DEFAULT_AGENTS = [
         "descripcion": "Analiza visualmente la imagen del documento con motor IA. Recibe la IMAGEN + texto OCR del paso anterior para complementar y corregir la extracción. Contexto: por_documento (se limpia en cada lectura).",
         "icono": "👁",
         "tipo": "vision",
-        "modelo": "qwen3.5:0.8b",
+        "modelo": "moondream",
         "contexto": "por_documento",
         "prompt": "",
         "system_prompt": "Eres el Agente Visual, un experto en análisis de documentos contables latinoamericanos. Tu rol es analizar visualmente la imagen del documento y extraer TODA la información visible. Eres el segundo agente en el pipeline — ya tienes el texto extraído por OCR del paso anterior. Debes complementar y corregir el OCR con lo que ves directamente en la imagen. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
@@ -1379,7 +1379,7 @@ DEFAULT_AGENTS = [
         "descripcion": "Consolida campos estructurados a partir de OCR + Agente Visual. Recibe la IMAGEN + texto OCR + campos visuales. Usa IA + regex para máxima cobertura. Contexto: por_documento.",
         "icono": "🧠",
         "tipo": "extractor",
-        "modelo": "qwen3.5:0.8b",
+        "modelo": "moondream",
         "contexto": "por_documento",
         "prompt": "",
         "system_prompt": "Eres el Agente Extractor, un contador experto en documentos contables latinoamericanos. Tu rol es extraer campos estructurados del documento con máxima precisión. Eres el tercer agente en el pipeline — tienes el texto OCR y los campos detectados por el Agente Visual. Debes consolidar y completar la información, priorizando los valores más confiables. Responde SOLO con JSON válido, sin texto adicional ni markdown.",
@@ -1512,10 +1512,12 @@ async def root_redirect():
 
 
 if __name__ == "__main__":
-    # log_level="info" para que Pinokio detecte el puerto en el output
+    # IMPORTANTE: Usar 127.0.0.1 (no 0.0.0.0) para compatibilidad con Windows.
+    # En Windows, 0.0.0.0 no es navegable y browser.open falla.
+    # 127.0.0.1 funciona en todas las plataformas.
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=PORT,
         log_level="info",
         # loop="asyncio" es compatible con Windows (evita problemas con uvloop)

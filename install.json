@@ -63,7 +63,7 @@
       "method": "fs.write",
       "params": {
         "path": "data/config.json",
-        "text": "{{JSON.stringify({version:'1.4.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,textModel:'qwen3.5:0.8b',visionModel:'moondream',ollamaUrl:'http://127.0.0.1:11434',ollamaTimeout:300},null,2)}}"
+        "text": "{{JSON.stringify({version:'1.4.0',installedAt:new Date().toISOString(),platform:platform,arch:arch,ram:ram,vram:vram,gpu:gpu,textModel:'qwen3:0.6b',visionModel:'moondream',ollamaUrl:'http://127.0.0.1:11434',ollamaTimeout:300},null,2)}}"
       }
     },
 
