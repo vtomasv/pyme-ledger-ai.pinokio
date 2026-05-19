@@ -53,8 +53,11 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 
 ## ── Modelos soportados por agente ──────────────────────────────────────────────────────
 # NOTA: qwen3 es solo texto. Para visión usar moondream/llava/minicpm-v.
+# IMPORTANTE: El agente visual DEBE usar un modelo con soporte de imagen (multimodal).
+# qwen3:0.6b NO tiene capacidad visual — enviar imágenes a él falla silenciosamente en Windows.
 QWEN_MODEL = "qwen3:0.6b"        # Agente de texto pequeño (extracción, clasificación)
 LLAMA_MODEL = "llama3.2:3b"      # Agentes de razonamiento (Clasificador+Auditor+Recomendador)
+VISION_DEFAULT_MODEL = "moondream"  # Default para agente visual (DEBE ser multimodal)
 
 # Listas de preferencia por tipo de tarea
 # Para visión: moondream es el más ligero con soporte de imagen
@@ -997,9 +1000,9 @@ class DocumentPipelineAgent:
         # Defaults por agente
         agent_defaults = {
             # max_tokens aumentados para evitar truncamiento del JSON de salida.
-            # Con thinking activado, qwen3 consume tokens en el razonamiento interno
-            # antes de generar el JSON final, por lo que necesita más tokens de salida.
-            "vision":       {"modelo": QWEN_MODEL,  "timeout": 300, "temperature": 0.1, "max_tokens": 4096},
+            # VISION: Usa VISION_DEFAULT_MODEL (moondream) porque necesita soporte multimodal.
+            # qwen3:0.6b NO soporta imágenes y falla silenciosamente en Windows.
+            "vision":       {"modelo": VISION_DEFAULT_MODEL,  "timeout": 300, "temperature": 0.1, "max_tokens": 4096},
             "extractor":    {"modelo": QWEN_MODEL,  "timeout": 240, "temperature": 0.1, "max_tokens": 3000},
             "clasificador": {"modelo": LLAMA_MODEL, "timeout": 120, "temperature": 0.05, "max_tokens": 1024},
             "auditor":      {"modelo": LLAMA_MODEL, "timeout": 180, "temperature": 0.05, "max_tokens": 2048},
@@ -1031,6 +1034,138 @@ class DocumentPipelineAgent:
             "temperature": d["temperature"],
             "max_tokens": d["max_tokens"],
         }
+
+    def _auto_create_categories(self) -> List[Dict]:
+        """
+        Crea automáticamente categorías contables base cuando no existen.
+        Usa las categorías semánticas definidas en SEMANTIC_KEYWORDS del classifier_agent.
+        Retorna la lista de categorías creadas en formato [{id, nombre, descripcion}].
+        """
+        from models import CategoriaContable
+        import uuid as _uuid
+
+        # Categorías base con tipo de gasto y keywords asociados
+        AUTO_CATEGORIES = [
+            {
+                "nombre": "Operaciones",
+                "tipo_gasto": "Operación",
+                "codigo": "OPE",
+                "keywords": ["suministro", "insumo", "materiales", "mantención", "reparación",
+                             "limpieza", "transporte", "flete", "bodega", "logística"],
+                "deducibilidad": "Total",
+                "regla_iva": "Recuperable"
+            },
+            {
+                "nombre": "Marketing y Publicidad",
+                "tipo_gasto": "Marketing",
+                "codigo": "MKT",
+                "keywords": ["publicidad", "propaganda", "diseño", "imprenta", "redes sociales",
+                             "facebook", "instagram", "google ads", "agencia"],
+                "deducibilidad": "Total",
+                "regla_iva": "Recuperable"
+            },
+            {
+                "nombre": "Tecnología",
+                "tipo_gasto": "Tecnología",
+                "codigo": "TEC",
+                "keywords": ["software", "hardware", "computador", "hosting", "licencia",
+                             "suscripción", "internet", "nube", "cloud", "soporte técnico"],
+                "deducibilidad": "Total",
+                "regla_iva": "Recuperable"
+            },
+            {
+                "nombre": "Servicios Básicos",
+                "tipo_gasto": "Servicios",
+                "codigo": "SVC",
+                "keywords": ["agua", "luz", "electricidad", "gas", "teléfono", "celular",
+                             "entel", "movistar", "claro", "wom", "enel"],
+                "deducibilidad": "Total",
+                "regla_iva": "Recuperable"
+            },
+            {
+                "nombre": "Arriendo",
+                "tipo_gasto": "Arriendo",
+                "codigo": "ARR",
+                "keywords": ["arriendo", "alquiler", "renta", "arrendamiento", "local", "oficina"],
+                "deducibilidad": "Total",
+                "regla_iva": "No recuperable"
+            },
+            {
+                "nombre": "Sueldos y RRHH",
+                "tipo_gasto": "Personal",
+                "codigo": "RHH",
+                "keywords": ["sueldo", "salario", "remuneración", "honorario", "afp",
+                             "isapre", "fonasa", "previsión", "liquidación"],
+                "deducibilidad": "Total",
+                "regla_iva": "No recuperable"
+            },
+            {
+                "nombre": "Impuestos y Legal",
+                "tipo_gasto": "Impuestos",
+                "codigo": "IMP",
+                "keywords": ["impuesto", "iva", "renta", "sii", "patente", "municipal",
+                             "notaria", "abogado", "legal", "contador"],
+                "deducibilidad": "No deducible",
+                "regla_iva": "No recuperable"
+            },
+            {
+                "nombre": "Financiero",
+                "tipo_gasto": "Financiero",
+                "codigo": "FIN",
+                "keywords": ["banco", "crédito", "préstamo", "interés", "comisión bancaria",
+                             "seguro", "póliza", "leasing", "factoring"],
+                "deducibilidad": "Parcial",
+                "regla_iva": "No recuperable"
+            },
+            {
+                "nombre": "Alimentación",
+                "tipo_gasto": "Alimentación",
+                "codigo": "ALI",
+                "keywords": ["alimentación", "comida", "restaurante", "colación",
+                             "supermercado", "café", "catering"],
+                "deducibilidad": "Total",
+                "regla_iva": "Recuperable"
+            },
+            {
+                "nombre": "Otros Gastos",
+                "tipo_gasto": "Otros",
+                "codigo": "OTR",
+                "keywords": ["otro", "varios", "misceláneo", "general"],
+                "deducibilidad": "Parcial",
+                "regla_iva": "Recuperable"
+            },
+        ]
+
+        created = []
+        for cat_def in AUTO_CATEGORIES:
+            cat_id = str(_uuid.uuid4())
+            cat = CategoriaContable(
+                id=cat_id,
+                empresa_id=self.empresa_id,
+                codigo=cat_def["codigo"],
+                nombre=cat_def["nombre"],
+                tipo_gasto=cat_def["tipo_gasto"],
+                deducibilidad=cat_def["deducibilidad"],
+                regla_iva=cat_def["regla_iva"],
+                keywords=json.dumps(cat_def["keywords"], ensure_ascii=False),
+                activa=True
+            )
+            self.db.add(cat)
+            created.append({
+                "id": cat_id,
+                "nombre": cat_def["nombre"],
+                "descripcion": cat_def["tipo_gasto"]
+            })
+
+        try:
+            self.db.commit()
+            logger.info(f"Creadas {len(created)} categorías automáticas para empresa {self.empresa_id}")
+        except Exception as e:
+            logger.error(f"Error creando categorías automáticas: {e}")
+            self.db.rollback()
+            return []
+
+        return created
 
     def process_stream(self, file_path: str, original_filename: str) -> Generator[str, None, None]:
         """
@@ -1142,6 +1277,19 @@ class DocumentPipelineAgent:
         if vision_model and img_b64:
             cfg_vision = self._get_agent_config("vision")
             vision_model_to_use = cfg_vision["modelo"] or vision_model
+
+            # PROTECCIÓN WINDOWS: Validar que el modelo visual sea realmente multimodal.
+            # qwen3:0.6b es solo texto y falla silenciosamente al recibir imágenes.
+            # Si se detectó un modelo de solo texto, forzar al modelo de visión real.
+            TEXT_ONLY_MODELS = ["qwen3", "qwen2.5", "llama3.2:3b", "llama3:8b", "phi", "gemma"]
+            is_text_only = any(t in vision_model_to_use.lower() for t in TEXT_ONLY_MODELS)
+            if is_text_only:
+                logger.warning(
+                    f"Modelo '{vision_model_to_use}' NO soporta imágenes. "
+                    f"Forzando a modelo de visión real: {vision_model}"
+                )
+                vision_model_to_use = vision_model  # Usar el detectado por _get_models()
+
             yield self._emit("vision", "running", {
                 "title": "Agente Visual — Análisis de imagen",
                 "message": f"Analizando imagen con {vision_model_to_use} + contexto OCR..."
@@ -1346,15 +1494,63 @@ class DocumentPipelineAgent:
                 "razon": "", "categoria_id": None
             }
 
+            # AUTO-CREACIÓN DE CATEGORÍAS: Si no hay categorías configuradas,
+            # crear automáticamente un set base al escanear la primera boleta.
+            # Esto resuelve el problema de que el usuario no tenga categorías
+            # y el clasificador retorne "Sin categoría" sin poder asignar nada.
+            if not cat_list:
+                logger.info("No hay categorías configuradas. Creando categorías automáticas...")
+                cat_list = self._auto_create_categories()
+                yield self._emit("classification", "info", {
+                    "title": "Categorías creadas automáticamente",
+                    "message": f"Se crearon {len(cat_list)} categorías base para clasificar gastos",
+                    "categorias_creadas": [c["nombre"] for c in cat_list]
+                })
+
             if cat_list:
                 combined_lower = ctx["combined_text"].lower()
                 proveedor_lower = str(ctx["fields"].get("proveedor", "")).lower()
                 desc_lower = str(ctx["fields"].get("descripcion", "")).lower()
                 search_text = combined_lower + " " + proveedor_lower + " " + desc_lower
 
-                # 1. LLM con contexto completo
+                # 0. MEMORIA DE PROVEEDOR: Buscar si este proveedor ya fue clasificado antes
+                # Esto permite clasificación instantánea sin LLM para proveedores conocidos.
+                try:
+                    from classification_memory import find_provider_category, set_data_dir as _set_mem_dir2
+                    import os as _os2
+                    _mem_data_dir2 = Path(_os2.environ.get("DATA_DIR", str(self.uploads_dir.parent / "data")))
+                    _set_mem_dir2(_mem_data_dir2)
+                    memory_result = find_provider_category(
+                        empresa_id=self.empresa_id,
+                        proveedor=str(ctx["fields"].get("proveedor", "")),
+                        rut_proveedor=str(ctx["fields"].get("rut_proveedor", ""))
+                    )
+                    if memory_result:
+                        # Verificar que la categoría aún existe en cat_list
+                        mem_cat_id = memory_result.get("categoria_id", "")
+                        mem_cat_name = memory_result.get("categoria", "")
+                        cat_exists = any(
+                            c["id"] == mem_cat_id or c["nombre"].lower() == mem_cat_name.lower()
+                            for c in cat_list
+                        )
+                        if cat_exists:
+                            classification["categoria_sugerida"] = mem_cat_name
+                            classification["categoria_id"] = mem_cat_id
+                            classification["confianza"] = memory_result["confianza"]
+                            classification["razon"] = (
+                                f"Clasificación por memoria ({memory_result['fuente']}): "
+                                f"proveedor ya clasificado previamente"
+                            )
+                            logger.info(
+                                f"Clasificación por memoria: {ctx['fields'].get('proveedor', '?')} "
+                                f"→ {mem_cat_name} (confianza: {memory_result['confianza']:.0%})"
+                            )
+                except Exception as _mem_err:
+                    logger.debug(f"Memoria de proveedor error (no crítico): {_mem_err}")
+
+                # 1. LLM con contexto completo (solo si la memoria no resolvió)
                 classifier_model_to_use = cfg_classifier["modelo"] or llama_model or text_model
-                if classifier_model_to_use:
+                if classifier_model_to_use and not classification["categoria_sugerida"]:
                     cat_names = "\n".join(
                         f"- {c['nombre']}" + (f" ({c['descripcion']})" if c['descripcion'] != c['nombre'] else "")
                         for c in cat_list
@@ -1625,6 +1821,33 @@ class DocumentPipelineAgent:
                 ctx=ctx
             )
             ctx["saved"] = True
+
+            # AUTO-APRENDIZAJE: Guardar contexto de clasificación exitosa
+            # para que el clasificador recuerde proveedor→categoría en futuras boletas.
+            try:
+                from classification_memory import save_auto_classification_context, set_data_dir as _set_mem_dir
+                _set_mem_dir(self.uploads_dir.parent / "data" if not (self.uploads_dir.parent / "data").exists()
+                             else self.uploads_dir.parent / "data")
+                # Usar DATA_DIR del entorno
+                import os as _os
+                _mem_data_dir = Path(_os.environ.get("DATA_DIR", str(self.uploads_dir.parent / "data")))
+                _set_mem_dir(_mem_data_dir)
+
+                if ctx["classification"].get("categoria_sugerida") and ctx["classification"].get("confianza", 0) >= 0.7:
+                    save_auto_classification_context(
+                        empresa_id=self.empresa_id,
+                        proveedor=str(ctx["fields"].get("proveedor", "")),
+                        rut_proveedor=str(ctx["fields"].get("rut_proveedor", "")),
+                        tipo_documento=str(ctx["fields"].get("tipo_documento", "")),
+                        categoria_nombre=ctx["classification"]["categoria_sugerida"],
+                        categoria_id=ctx["classification"].get("categoria_id", ""),
+                        texto_ocr=ctx["combined_text"][:300] if ctx["combined_text"] else "",
+                        monto_total=float(ctx["fields"].get("monto_total", 0) or 0),
+                        confianza=ctx["classification"]["confianza"]
+                    )
+                    logger.info(f"Auto-aprendizaje guardado: {ctx['fields'].get('proveedor', '?')} → {ctx['classification']['categoria_sugerida']}")
+            except Exception as _learn_err:
+                logger.debug(f"Auto-aprendizaje error (no crítico): {_learn_err}")
 
             yield self._emit("save", "done", {
                 "title": "Documento guardado",

@@ -11,14 +11,16 @@
       "when": "{{platform !== 'win32'}}",
       "method": "shell.run",
       "params": {
-        "message": "curl -s http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && echo OLLAMA_OK || (ollama serve > /dev/null 2>&1 & sleep 3 && echo OLLAMA_STARTED)"
+        "venv": "venv",
+        "message": "python scripts/start_ollama.py"
       }
     },
     {
       "when": "{{platform === 'win32'}}",
       "method": "shell.run",
       "params": {
-        "message": "curl -s http://127.0.0.1:11434/api/tags > nul 2>&1 && echo OLLAMA_OK || (start /B ollama serve && ping -n 4 127.0.0.1 > nul && echo OLLAMA_STARTED)"
+        "venv": "venv",
+        "message": "python scripts/start_ollama.py"
       }
     },
     {

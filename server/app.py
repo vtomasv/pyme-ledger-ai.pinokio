@@ -660,18 +660,23 @@ async def get_document(empresa_id: str, doc_id: str):
 # Memoria de clasificaciones humanas (skill de aprendizaje)
 # ============================================================
 
-from classification_memory import save_classification_learning, get_classification_learnings, set_data_dir as _set_learn_dir
+from classification_memory import (
+    save_classification_learning, get_classification_learnings,
+    save_auto_classification_context, find_provider_category,
+    set_data_dir as _set_learn_dir
+)
 _set_learn_dir(DATA_DIR)
 
 
 def _save_classification_learning(
     empresa_id: str, proveedor: str, descripcion: str,
     tipo_documento: str, old_categoria, new_categoria_id: str,
-    db: Session
+    db: Session, rut_proveedor: str = "", monto_total: float = None
 ):
     """
     Guarda la corrección de clasificación del usuario como aprendizaje.
     Wrapper que resuelve el nombre de la categoría desde la BD.
+    Ahora incluye contexto enriquecido: RUT, texto OCR y monto.
     """
     from models import CategoriaContable
     new_cat = db.query(CategoriaContable).filter(
@@ -684,7 +689,10 @@ def _save_classification_learning(
         descripcion=descripcion,
         tipo_documento=tipo_documento,
         new_cat_name=new_cat_name,
-        new_categoria_id=new_categoria_id
+        new_categoria_id=new_categoria_id,
+        rut_proveedor=rut_proveedor,
+        texto_ocr=descripcion,
+        monto_total=monto_total
     )
 
 
@@ -713,9 +721,11 @@ async def update_document(empresa_id: str, doc_id: str, update: DocumentoUpdate)
                         proveedor=doc.proveedor or update.proveedor or "",
                         descripcion=doc.texto_extraido[:200] if doc.texto_extraido else "",
                         tipo_documento=doc.tipo_documento.value if doc.tipo_documento else "",
-                        old_categoria=None,  # se resuelve abajo
+                        old_categoria=None,
                         new_categoria_id=update.categoria_id,
-                        db=db
+                        db=db,
+                        rut_proveedor=doc.rut_proveedor or update.rut_proveedor or "",
+                        monto_total=doc.monto_total
                     )
                 except Exception as learn_err:
                     print(f"WARN: Error guardando aprendizaje de clasificaci\u00f3n: {learn_err}")

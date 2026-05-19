@@ -12,7 +12,7 @@
     {
       "id": "vision",
       "nombre": "Agente Visual",
-      "model": "llama3.1:8b",
+      "model": "moondream",
       "tipo": "vision",
       "temperature": 0.1,
       "maxTokens": 800,
